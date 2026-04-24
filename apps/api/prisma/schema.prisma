@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN_EVENTO
+  ACREDITADOR
+  LECTURA
+}
+
+enum EventStatus {
+  draft
+  active
+  closed
+  archived
+}
+
+enum EventPersonSource {
+  imported
+  manual
+}
+
+enum EventPersonStatus {
+  pending
+  accredited
+}
+
+model User {
+  id            String                 @id @default(cuid())
+  name          String
+  email         String                 @unique
+  passwordHash  String
+  role          UserRole
+  isActive      Boolean                @default(true)
+  refreshToken  String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  eventUsers    EventUser[]
+  accredited    EventPerson[]          @relation("AccreditedBy")
+  importBatches ImportBatch[]
+  overrides     AccreditationOverride[]
+  auditLogs     AuditLog[]
+}
+
+model Event {
+  id            String       @id @default(cuid())
+  name          String
+  slug          String       @unique
+  description   String?
+  startAt       DateTime
+  endAt         DateTime
+  location      String?
+  status        EventStatus  @default(draft)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  eventUsers    EventUser[]
+  eventPeople   EventPerson[]
+  importBatches ImportBatch[]
+}
+
+model EventUser {
+  id              String    @id @default(cuid())
+  eventId         String
+  userId          String
+  roleWithinEvent String?
+  createdAt       DateTime  @default(now())
+  event           Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+model Person {
+  id             String       @id @default(cuid())
+  cuilNormalized String       @unique
+  cuilRaw        String
+  dni            String?
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  company        String?
+  position       String?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  eventPeople    EventPerson[]
+
+  @@index([lastName, firstName])
+}
+
+model EventPerson {
+  id                  String                 @id @default(cuid())
+  eventId             String
+  personId            String
+  source              EventPersonSource
+  importBatchId       String?
+  status              EventPersonStatus      @default(pending)
+  accreditedAt        DateTime?
+  accreditedByUserId  String?
+  accreditationNotes  String?
+  extraData           Json?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  event               Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person              Person                 @relation(fields: [personId], references: [id], onDelete: Cascade)
+  importBatch         ImportBatch?           @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  accreditedByUser    User?                  @relation("AccreditedBy", fields: [accreditedByUserId], references: [id], onDelete: SetNull)
+  overrides           AccreditationOverride[]
+
+  @@unique([eventId, personId])
+  @@index([eventId, status])
+}
+
+model AccreditationOverride {
+  id              String    @id @default(cuid())
+  eventPersonId   String
+  reason          String
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  eventPerson     EventPerson @relation(fields: [eventPersonId], references: [id], onDelete: Cascade)
+  createdByUser   User      @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+}
+
+model ImportBatch {
+  id               String                @id @default(cuid())
+  eventId          String
+  uploadedByUserId String
+  originalFilename String
+  sheetName        String
+  totalRows        Int
+  validRows        Int
+  invalidRows      Int
+  duplicateRows    Int
+  importedRows     Int
+  createdAt        DateTime              @default(now())
+  event            Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedByUser   User                  @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+  eventPeople      EventPerson[]
+  rowErrors        ImportBatchRowError[]
+}
+
+model ImportBatchRowError {
+  id            String    @id @default(cuid())
+  importBatchId String
+  rowNumber     Int
+  rawData       Json
+  errorMessage  String
+  importBatch   ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([createdAt])
+}

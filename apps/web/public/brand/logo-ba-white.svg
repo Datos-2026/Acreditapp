@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40" viewBox="0 0 120 40" fill="none">
+  <rect width="120" height="40" rx="8" fill="white"/>
+  <circle cx="20" cy="20" r="10" fill="#153244"/>
+  <text x="38" y="25" fill="#153244" font-family="Arial, sans-serif" font-size="14" font-weight="700">GCBA</text>
+</svg>
