@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "postinstall": "prisma generate --schema prisma/schema.prisma",
+    "postinstall": "node scripts/postinstall-prisma.cjs",
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
