@@ -186,8 +186,7 @@ npm run db:seed
 npm run dev
 ```
 
-API: `http://localhost:4000`  
-Web: `http://localhost:5173`
+Abrí **solo** la web en `http://localhost:5173`: las llamadas a `/api/v1` las reenvía Vite al backend en `http://localhost:4000` (mismo origen en el navegador que en producción con Docker en el puerto 3000). La API sigue escuchando en 4000 para el proxy.
 
 ### Si falla la base o `prisma generate` (Windows)
 
