@@ -212,6 +212,26 @@ npm run db:generate
 
 El cliente Prisma se genera en `apps/api/src/generated/prisma` (no en el `node_modules` de la raíz) para reducir este problema en monorepos Windows.
 
+### Imagen Docker (despliegue)
+
+Ya **no** se usa `npm run dev` en la imagen: se hace `build` del web y de la API, y al arrancar se ejecuta **`node dist/src/server.js`** en el puerto **3000** (Express sirve `/api/v1` y los archivos estáticos del front).
+
+Al iniciar el contenedor, el **`docker/entrypoint.sh`** corre **`prisma migrate deploy`** si hay `DATABASE_URL` (salvo `SKIP_DB_MIGRATE=1` si las migraciones las aplica otro paso del pipeline).
+
+Ejemplo:
+
+```bash
+docker build -t gcba-acreditacion .
+docker run --rm -p 3000:3000 \
+  -e DATABASE_URL="postgresql://..." \
+  -e JWT_ACCESS_SECRET="..." \
+  -e JWT_REFRESH_SECRET="..." \
+  -e CORS_ORIGIN="https://tu-dominio" \
+  gcba-acreditacion
+```
+
+Abrí `http://localhost:3000` (o el dominio con HTTPS y `COOKIE_SECURE=true`). Health: `GET /health`, base: `GET /health/db`.
+
 ## Scripts disponibles
 
 - `npm run dev` (api + web)

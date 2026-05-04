@@ -22,7 +22,18 @@ export const app = express();
 /** Evita 500 de express-rate-limit cuando hay `X-Forwarded-For` (VPN, proxy) sin trust proxy. */
 app.set("trust proxy", 1);
 
-app.use(helmet());
+app.use(
+  helmet({
+    /** index.html carga fuentes de Google; CSP por defecto las bloqueaba al servir el SPA desde Express. */
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        "font-src": ["'self'", "https://fonts.gstatic.com"]
+      }
+    }
+  })
+);
 app.use(
   cors({
     origin: (origin, callback) => {
