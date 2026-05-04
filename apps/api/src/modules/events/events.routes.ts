@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import type { EventReportAiAnalysis } from "@gcba/shared";
 import { normalizeCuil, manualPersonSchema } from "@gcba/shared";
-import { EventPersonStatus, EventStatus, Prisma, UserRole } from "@prisma/client";
+import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { requireRoles } from "../../middlewares/rbac";

@@ -1,11 +1,18 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import bcrypt from "bcrypt";
-import { PrismaClient, UserRole } from "@prisma/client";
+import dotenv from "dotenv";
+import { PrismaClient, UserRole } from "../src/prisma-exports";
 import { normalizeCuil } from "@gcba/shared";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
+dotenv.config({ path: path.join(__dirname, "..", "..", "..", ".env") });
 
 const prisma = new PrismaClient();
 
-async function createUser(name: string, email: string, role: UserRole) {
-  const passwordHash = await bcrypt.hash("Password123!", 12);
+async function createUser(name: string, email: string, role: UserRole, password = "Password123!") {
+  const passwordHash = await bcrypt.hash(password, 12);
   return prisma.user.upsert({
     where: { email },
     update: { name, role, passwordHash, isActive: true },
@@ -15,6 +22,12 @@ async function createUser(name: string, email: string, role: UserRole) {
 
 async function main() {
   const superadmin = await createUser("Super Admin", "superadmin@gcba.local", "SUPERADMIN");
+  const ignacioSuperadmin = await createUser(
+    "Ignacio",
+    "ignaciorave21@gmail.com",
+    "SUPERADMIN",
+    "Ignacio21"
+  );
   const admin1 = await createUser("Admin Evento 1", "admin1@gcba.local", "ADMIN_EVENTO");
   const admin2 = await createUser("Admin Evento 2", "admin2@gcba.local", "ADMIN_EVENTO");
   const accred1 = await createUser("Acreditador Uno", "acred1@gcba.local", "ACREDITADOR");
@@ -64,7 +77,7 @@ async function main() {
     })
   ]);
 
-  const users = [superadmin, admin1, admin2, accred1, accred2, accred3, lector];
+  const users = [superadmin, ignacioSuperadmin, admin1, admin2, accred1, accred2, accred3, lector];
   for (const event of events) {
     for (const user of users) {
       await prisma.eventUser.upsert({

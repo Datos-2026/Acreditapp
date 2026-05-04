@@ -11,7 +11,12 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(10),
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(7),
-  CORS_ORIGIN: z.string().default("http://localhost:5173"),
+  /** Orígenes permitidos separados por coma (ej. `http://localhost:5173,http://127.0.0.1:5173`). */
+  CORS_ORIGIN: z
+    .string()
+    .default(
+      "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
+    ),
   COOKIE_SECURE: z
     .string()
     .optional()
@@ -25,4 +30,30 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it")
 });
 
-export const env = envSchema.parse(process.env);
+const raw = envSchema.parse(process.env);
+
+function expandLocalViteOrigins(origins: string[]): string[] {
+  const out = new Set(origins);
+  for (const o of origins) {
+    try {
+      const u = new URL(o);
+      const port = u.port || (u.protocol === "https:" ? "443" : "80");
+      if (port !== "5173" && port !== "3000") continue;
+      const host = u.hostname.toLowerCase();
+      if (host === "localhost") out.add(`http://127.0.0.1:${port}`);
+      if (host === "127.0.0.1") out.add(`http://localhost:${port}`);
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...out];
+}
+
+export const env = {
+  ...raw,
+  CORS_ORIGINS: expandLocalViteOrigins(
+    raw.CORS_ORIGIN.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  )
+};

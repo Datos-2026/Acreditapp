@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import axios from "axios";
 import { loginSchema } from "@gcba/shared";
 import type { z } from "zod";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -46,6 +47,7 @@ export function LoginPage() {
           <form
             className="login-form"
             onSubmit={handleSubmit(async (values) => {
+              setError(null);
               try {
                 const me = await login(values.email, values.password);
                 if (fromPath && fromPath !== "/login") {
@@ -53,8 +55,35 @@ export function LoginPage() {
                   return;
                 }
                 navigate(me.role === "SUPERADMIN" ? "/admin" : "/eventos", { replace: true });
-              } catch {
-                setError("Credenciales inválidas");
+              } catch (err) {
+                if (axios.isAxiosError(err)) {
+                  if (err.code === "ERR_NETWORK" || err.message === "Network Error") {
+                    setError(
+                      "No hay conexión con la API. Revisá que el backend esté en marcha y VITE_API_URL (por defecto http://localhost:4000/api/v1)."
+                    );
+                    return;
+                  }
+                  const msg = err.response?.data && (err.response.data as { message?: string }).message;
+                  if (err.response?.status === 401 && typeof msg === "string") {
+                    setError(msg);
+                    return;
+                  }
+                  if (err.response?.status === 429) {
+                    setError(
+                      "Demasiados intentos. Esperá unos minutos o reiniciá el servidor de la API (en desarrollo se relajó el límite)."
+                    );
+                    return;
+                  }
+                  if (err.response?.status === 503 && typeof msg === "string") {
+                    setError(msg);
+                    return;
+                  }
+                  if (err.response?.status === 500 && typeof msg === "string") {
+                    setError(`Error del servidor: ${msg}`);
+                    return;
+                  }
+                }
+                setError("No se pudo iniciar sesión. Revisá correo y contraseña.");
               }
             })}
           >

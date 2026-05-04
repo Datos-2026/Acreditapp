@@ -4,7 +4,7 @@ import type {
   EventReportPayload,
   EventReportStatusSlice
 } from "@gcba/shared";
-import { EventPersonStatus } from "@prisma/client";
+import { EventPersonStatus } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 
 function formatDateAr(d: Date): string {

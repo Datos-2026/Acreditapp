@@ -4,33 +4,41 @@ import { loginSchema } from "@gcba/shared";
 import { validateBody } from "../../middlewares/validate";
 import { requireAuth } from "../../middlewares/auth";
 import { createAuditLog } from "../../lib/audit";
+import { logger } from "../../lib/logger";
+import { env } from "../../config/env";
 import { login, logout, refresh } from "./auth.service";
 import { prisma } from "../../lib/prisma";
 
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: env.COOKIE_SECURE,
+  sameSite: "lax" as const,
+  maxAge: 1000 * 60 * 60 * 24 * 7
+};
+
 const router = Router();
+
+const isProd = process.env.NODE_ENV === "production";
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true
+  max: isProd ? 50 : 400,
+  standardHeaders: true,
+  legacyHeaders: false
 });
 
 router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, next) => {
   try {
     const result = await login(req.body.email, req.body.password);
-    res.cookie("refreshToken", result.tokens.refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7
-    });
-    await createAuditLog({
+    res.cookie("refreshToken", result.tokens.refreshToken, refreshCookieOptions);
+    res.json({ accessToken: result.tokens.accessToken });
+    void createAuditLog({
       req,
       action: "auth.login",
       entityType: "user",
-      entityId: result.userId
-    });
-    res.json({ accessToken: result.tokens.accessToken });
+      entityId: result.userId,
+      actorUserId: result.userId
+    }).catch((err) => logger.error({ err }, "audit auth.login"));
   } catch (error) {
     next(error);
   }
@@ -44,12 +52,7 @@ router.post("/refresh", async (req, res, next) => {
       return;
     }
     const tokens = await refresh(refreshToken);
-    res.cookie("refreshToken", tokens.refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7
-    });
+    res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
     res.json({ accessToken: tokens.accessToken });
   } catch (error) {
     next(error);

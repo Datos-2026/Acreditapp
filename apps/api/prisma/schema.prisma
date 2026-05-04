@@ -1,9 +1,11 @@
 generator client {
   provider = "prisma-client-js"
+  /** Fuera del node_modules de la raíz del monorepo: evita EPERM al renombrar query_engine en Windows. */
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

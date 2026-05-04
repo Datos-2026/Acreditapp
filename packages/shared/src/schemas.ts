@@ -3,7 +3,11 @@ import { isValidCuil, normalizeCuil } from "./cuil";
 import { ROLE_OPTIONS } from "./constants";
 
 export const loginSchema = z.object({
-  email: z.string().email("Email inválido"),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.string().email("Email inválido")),
   password: z.string().min(6, "Mínimo 6 caracteres")
 });
 

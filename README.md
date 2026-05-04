@@ -6,7 +6,7 @@ Aplicación web full stack para migrar y operar acreditaciones de eventos en tie
 
 - Frontend: React + Vite + TypeScript
 - Backend: Express + TypeScript
-- Base de datos: SQLite local (rápido) o PostgreSQL + Prisma
+- Base de datos: PostgreSQL + Prisma (Docker Compose en desarrollo)
 - Monorepo: npm workspaces (`apps/web`, `apps/api`, `packages/shared`)
 - Auth: JWT access token + refresh token HTTP-only cookie
 - Validaciones: Zod
@@ -121,7 +121,7 @@ Componentes incluidos:
 - `ActivityTimeline`
 - `ProtectedRoute`
 - `RoleGuard`
-- `AppLayout`
+- `AdminLayout`, `EventShellLayout`
 - `DataTable`
 - `ConfirmDialog`
 
@@ -136,7 +136,7 @@ Assets de marca:
 Copiar `.env.example` a `.env` en la raíz:
 
 ```env
-DATABASE_URL="file:./prisma/dev.db"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/gcba_acreditacion?schema=public"
 API_PORT=4000
 WEB_PORT=5173
 JWT_ACCESS_SECRET="dev_access_secret_change_me"
@@ -155,34 +155,63 @@ COOKIE_SECURE=false
 npm install
 ```
 
-2. Inicializar base local (SQLite):
+2. Levantar PostgreSQL (local):
+
+```bash
+docker compose up -d postgres
+```
+
+Ajustá `DATABASE_URL` en `.env` si usás otro host, usuario o base.
+
+3. Aplicar migraciones y generar el cliente Prisma (desde la **raíz** del repo; Prisma usa `apps/api/prisma/schema.prisma`):
 
 ```bash
 npm run db:migrate
+npm run db:generate
 ```
 
-3. Cargar seed:
+En desarrollo, para crear migraciones nuevas: `npm run db:migrate:dev`.
+
+Alternativa: `cd apps/api` y `npm run db:migrate` (misma configuración).
+
+4. Cargar seed:
 
 ```bash
 npm run db:seed
 ```
 
-4. Levantar frontend + backend:
+5. Levantar frontend + backend:
 
 ```bash
 npm run dev
 ```
 
-### Opción PostgreSQL (opcional)
-
-Si preferís Postgres, podés levantarlo así:
-
-```bash
-docker compose up -d
-```
-
 API: `http://localhost:4000`  
 Web: `http://localhost:5173`
+
+### Si falla la base o `prisma generate` (Windows)
+
+**`P1001: Can't reach database server`**  
+No es un bug del proyecto: tu PC no abre TCP contra `HOST:PUERTO` de `DATABASE_URL`. Comprobá:
+
+- VPN o red que permita llegar al host (ej. `Test-NetConnection vpn.helio3.co -Port 5433` en PowerShell).
+- Que Postgres escuche en ese puerto y que firewall del servidor permita tu IP.
+- Que `DATABASE_URL` en **raíz** `.env` y en `apps/api/.env` sea la misma (Prisma CLI carga `apps/api/.env`).
+
+**`EPERM: operation not permitted, rename ... query_engine-windows.dll.node`**  
+Algo está usando el motor de Prisma (casi siempre otro `node` / `npm run dev` / antivirus).
+
+1. Cerrá terminales con `npm run dev`, procesos Node colgados y el IDE si hace falta.
+2. Borrá la carpeta del motor y regenerá:
+
+```powershell
+Remove-Item -Recurse -Force "node_modules\.prisma" -ErrorAction SilentlyContinue
+npm run db:generate
+```
+
+3. Si persiste, excluí la carpeta del proyecto del análisis en tiempo real del antivirus.
+
+El cliente Prisma se genera en `apps/api/src/generated/prisma` (no en el `node_modules` de la raíz) para reducir este problema en monorepos Windows.
 
 ## Scripts disponibles
 
@@ -192,7 +221,10 @@ Web: `http://localhost:5173`
 - `npm run build`
 - `npm run lint`
 - `npm run test`
-- `npm run db:migrate`
+- `npm run db:migrate` (desde la raíz: `migrate deploy` con `--schema apps/api/prisma/schema.prisma`)
+- `npm run db:migrate:dev` (crea migraciones en dev)
+- `npm run db:generate`
+- `npm run db:push -w @gcba/api` (sincroniza esquema sin migración; solo uso puntual)
 - `npm run db:seed`
 - `npm run format`
 

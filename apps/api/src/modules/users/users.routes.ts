@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { userSchema } from "@gcba/shared";
-import { Prisma, UserRole } from "@prisma/client";
+import { Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { requireRoles } from "../../middlewares/rbac";

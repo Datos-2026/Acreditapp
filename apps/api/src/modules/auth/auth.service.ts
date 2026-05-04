@@ -11,7 +11,8 @@ type AuthTokens = {
 };
 
 export async function login(email: string, password: string): Promise<{ tokens: AuthTokens; userId: string }> {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const normalized = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
   if (!user || !user.isActive) {
     throw new AppError("Credenciales inválidas", StatusCodes.UNAUTHORIZED);
   }

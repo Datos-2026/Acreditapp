@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { UserRole } from "@prisma/client";
+import type { UserRole } from "../prisma-exports";
 import { StatusCodes } from "http-status-codes";
 
 export function requireRoles(...roles: UserRole[]) {

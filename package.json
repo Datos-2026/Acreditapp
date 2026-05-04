@@ -16,6 +16,8 @@
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
     "db:migrate": "npm run db:migrate -w @gcba/api",
+    "db:generate": "npm run db:generate -w @gcba/api",
+    "db:migrate:dev": "npm run db:migrate:dev -w @gcba/api",
     "db:seed": "npm run db:seed -w @gcba/api",
     "format": "prettier --write ."
   },
