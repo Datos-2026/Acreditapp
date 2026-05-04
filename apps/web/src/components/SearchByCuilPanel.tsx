@@ -12,17 +12,18 @@ type FormValues = {
 export function SearchByCuilPanel({ onSearch }: Props) {
   const { register, handleSubmit, reset } = useForm<FormValues>();
   return (
-    <section className="terminal-section">
-      <label className="label-md" htmlFor="cuil-search" style={{ display: "block", marginBottom: "0.75rem" }}>
+    <section className="terminal-section card">
+      <label className="label-md field-label" htmlFor="cuil-search">
         Consulta de identidad
       </label>
       <form
+        className="search-cuil-form"
         onSubmit={handleSubmit((values) => {
           onSearch(values.cuil);
           reset();
         })}
       >
-        <div style={{ position: "relative" }}>
+        <div className="search-cuil-form__input-wrap">
           <input
             id="cuil-search"
             autoFocus
@@ -31,11 +32,11 @@ export function SearchByCuilPanel({ onSearch }: Props) {
             placeholder="CUIL / DNI"
             {...register("cuil")}
           />
-          <div style={{ position: "absolute", right: 0, bottom: "1.5rem", pointerEvents: "none" }}>
+          <div className="search-cuil-form__icon">
             <Icon name="search" style={{ fontSize: "2.5rem", color: "var(--secondary-container)" }} />
           </div>
         </div>
-        <p style={{ color: "var(--on-surface-variant)", fontSize: "0.9375rem", fontStyle: "italic", margin: "0.75rem 0 1.25rem" }}>
+        <p className="search-cuil-form__hint">
           Ingresá el documento para iniciar el proceso de acreditación en tiempo real. Enter para buscar.
         </p>
         <button className="btn btn-secondary" type="submit">

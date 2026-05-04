@@ -49,19 +49,30 @@ model User {
 }
 
 model Event {
-  id            String       @id @default(cuid())
-  name          String
-  slug          String       @unique
-  description   String?
-  startAt       DateTime
-  endAt         DateTime
-  location      String?
-  status        EventStatus  @default(draft)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  eventUsers    EventUser[]
-  eventPeople   EventPerson[]
-  importBatches ImportBatch[]
+  id               String              @id @default(cuid())
+  name             String
+  slug             String              @unique
+  description      String?
+  startAt          DateTime
+  endAt            DateTime
+  location         String?
+  status           EventStatus         @default(draft)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  eventUsers       EventUser[]
+  eventPeople      EventPerson[]
+  importBatches    ImportBatch[]
+  reportAiCache    EventReportAiCache?
+}
+
+/** Análisis IA del informe post-evento (una fila por evento; se reemplaza al regenerar). */
+model EventReportAiCache {
+  id        String   @id @default(cuid())
+  eventId   String   @unique
+  analysis  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
 model EventUser {

@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router-dom";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
 import { api } from "../../lib/api";
 import { useLastEvent } from "../../lib/lastEventContext";
-import { SearchByCuilPanel } from "../../components/SearchByCuilPanel";
-import { PersonSummaryCard } from "../../components/PersonSummaryCard";
 import { ManualPersonForm } from "../../components/ManualPersonForm";
 import { ImportWizard } from "../../components/ImportWizard";
 import { ActivityTimeline } from "../../components/ActivityTimeline";
@@ -14,6 +26,8 @@ import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { downloadAccreditedCsv } from "../../lib/downloadExport";
 import { Icon } from "../../components/Icon";
+import { useAuth } from "../auth/auth-context";
+import { EventAccessConfig } from "./EventAccessConfig";
 
 type EventPerson = {
   id: string;
@@ -29,6 +43,31 @@ type EventPerson = {
     position: string | null;
   };
 };
+
+type EventStats = {
+  pending?: number;
+  manual?: number;
+  accredited?: number;
+  importedInBase?: number;
+  accreditedImported?: number;
+  accreditedManual?: number;
+};
+
+/** Paleta para tortas / barras (contrasta sobre fondo oscuro del tema) */
+const CHART_COLORS = ["#4a9eff", "#5ce0a8", "#e8b86d", "#c084fc", "#f472b6"];
+
+function formatTimelineTick(iso: string) {
+  try {
+    return new Date(iso).toLocaleString("es-AR", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  } catch {
+    return iso;
+  }
+}
 
 const tabs = [
   "Acreditar",
@@ -64,6 +103,7 @@ const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
 };
 
 export function EventDetailPage() {
+  const { user } = useAuth();
   const { setLastEventId } = useLastEvent();
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -75,6 +115,10 @@ export function EventDetailPage() {
   const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
+  const [uiNotice, setUiNotice] = useState<string | null>(null);
+  const [liveSearchInput, setLiveSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchedOnce, setSearchedOnce] = useState(false);
 
   useEffect(() => {
     if (!SLUG_TO_TAB[slug]) {
@@ -83,8 +127,24 @@ export function EventDetailPage() {
   }, [slug, setSearchParams]);
 
   useEffect(() => {
+    if (slug === "config" && user?.role !== "SUPERADMIN") {
+      setSearchParams({ tab: "terminal" }, { replace: true });
+    }
+  }, [slug, user?.role, setSearchParams]);
+
+  const visibleTabs = useMemo(
+    () => (user?.role === "SUPERADMIN" ? [...tabs] : tabs.filter((t) => t !== "Configuración")),
+    [user?.role]
+  );
+
+  useEffect(() => {
     if (id) setLastEventId(id);
-  }, [id]);
+  }, [id, setLastEventId]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(liveSearchInput.trim()), 220);
+    return () => clearTimeout(handle);
+  }, [liveSearchInput]);
 
   const setTab = (label: (typeof tabs)[number]) => {
     setSearchParams({ tab: TAB_TO_SLUG[label] });
@@ -108,11 +168,13 @@ export function EventDetailPage() {
   });
   const timelineQuery = useQuery({
     queryKey: ["timeline", id],
-    queryFn: async () => (await api.get(`/events/${id}/stats/timeline`)).data
+    queryFn: async () => (await api.get(`/events/${id}/stats/timeline`)).data,
+    enabled: tab === "Dashboard"
   });
   const rankingQuery = useQuery({
     queryKey: ["ranking", id],
-    queryFn: async () => (await api.get(`/events/${id}/stats/by-user`)).data
+    queryFn: async () => (await api.get(`/events/${id}/stats/by-user`)).data,
+    enabled: tab === "Dashboard"
   });
   type AccreditedRow = {
     person: {
@@ -149,23 +211,59 @@ export function EventDetailPage() {
     enabled: tab === "Fuera de base"
   });
 
-  const searchMutation = useMutation({
-    mutationFn: async (cuil: string) => (await api.get(`/events/${id}/people/search?cuil=${encodeURIComponent(cuil)}`)).data,
-    onSuccess: (data) => setSelected(data),
-    onError: () => setSelected(null)
+  type LiveSearchRow = {
+    id: string;
+    status: "pending" | "accredited";
+    source: "manual" | "imported";
+    accreditedAt: string | null;
+    person: {
+      cuilNormalized: string;
+      firstName: string;
+      lastName: string;
+      dni: string | null;
+      company: string | null;
+      position: string | null;
+    };
+  };
+
+  const livePeopleQuery = useQuery({
+    queryKey: ["people", id, "live", debouncedSearch],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people?q=${encodeURIComponent(debouncedSearch)}&page=1&pageSize=5000`)).data as {
+        total: number;
+        rows: LiveSearchRow[];
+      },
+    enabled: tab === "Acreditar" && debouncedSearch.length >= 2
   });
+
+  const liveRows = useMemo(() => (livePeopleQuery.data?.rows ?? []) as LiveSearchRow[], [livePeopleQuery.data?.rows]);
+  const normalizedDigits = debouncedSearch.replace(/\D/g, "");
+  const exactCuilQuery = useQuery({
+    queryKey: ["people", id, "searchByCuil", normalizedDigits],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people/search?cuil=${encodeURIComponent(normalizedDigits)}`)).data as EventPerson,
+    enabled: tab === "Acreditar" && normalizedDigits.length === 11
+  });
+  const displayRows = useMemo(() => {
+    if (liveRows.length > 0) return liveRows;
+    if (exactCuilQuery.data) return [exactCuilQuery.data as unknown as LiveSearchRow];
+    return [];
+  }, [liveRows, exactCuilQuery.data]);
   const accreditMutation = useMutation({
     mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
     onSuccess: () => {
       setShowConfirm(false);
+      setUiNotice("Persona acreditada correctamente.");
       queryClient.invalidateQueries({ queryKey: ["people", id] });
       queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+      queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       queryClient.invalidateQueries({ queryKey: ["stats", id] });
     }
   });
   const manualMutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => (await api.post(`/events/${id}/people/manual`, payload)).data,
     onSuccess: () => {
+      setUiNotice("Alta fuera de base registrada.");
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
     }
@@ -181,8 +279,12 @@ export function EventDetailPage() {
       setShowConfirm(false);
       setSelected(null);
       setLastSearchedCuil("");
+      setLiveSearchInput("");
+      setDebouncedSearch("");
+      setUiNotice("Persona registrada y acreditada fuera de base.");
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       void queryClient.invalidateQueries({ queryKey: ["stats", id] });
     }
   });
@@ -192,38 +294,109 @@ export function EventDetailPage() {
     status: string;
     source: string;
   }>;
+  const stats = statsQuery.data as EventStats | undefined;
+
   const fastKpis = useMemo(
     () => [
       { label: "En base", value: eventQuery.data?.totalPeople ?? 0 },
       { label: "Acreditados", value: eventQuery.data?.accreditedPeople ?? 0 },
-      { label: "Pendientes", value: statsQuery.data?.pending ?? 0 },
-      { label: "Manuales", value: statsQuery.data?.manual ?? 0 }
+      { label: "Pendientes", value: stats?.pending ?? 0 },
+      { label: "Manuales", value: stats?.manual ?? 0 }
     ],
-    [eventQuery.data, statsQuery.data]
+    [eventQuery.data, stats]
   );
+
+  const statusBarData = useMemo(
+    () => [
+      { estado: "Acreditados", cantidad: stats?.accredited ?? 0 },
+      { estado: "Pendientes", cantidad: stats?.pending ?? 0 }
+    ],
+    [stats?.accredited, stats?.pending]
+  );
+
+  const originVolumeData = useMemo(() => {
+    const imp = stats?.importedInBase ?? 0;
+    const man = stats?.manual ?? 0;
+    return [
+      { name: "Base importada", value: imp },
+      { name: "Alta manual", value: man }
+    ].filter((d) => d.value > 0);
+  }, [stats?.importedInBase, stats?.manual]);
+
+  const accreditedByOriginData = useMemo(() => {
+    const i = stats?.accreditedImported ?? 0;
+    const m = stats?.accreditedManual ?? 0;
+    return [
+      { name: "Desde planilla", value: i },
+      { name: "Fuera de base", value: m }
+    ].filter((d) => d.value > 0);
+  }, [stats?.accreditedImported, stats?.accreditedManual]);
+
+  const rankingBarData = useMemo(() => {
+    const rows = (rankingQuery.data ?? []) as { userName: string; count: number }[];
+    return [...rows].reverse();
+  }, [rankingQuery.data]);
 
   if (eventQuery.isLoading) return <div className="page-state">Cargando evento...</div>;
 
   return (
-    <section>
-      <header className="card" style={{ marginBottom: "2rem" }}>
-        <p className="label-md" style={{ marginBottom: "0.5rem" }}>
-          Evento seleccionado
-        </p>
-        <h1 className="display-sm">{eventQuery.data?.name}</h1>
-        <p className="lead">{eventQuery.data?.description ?? "Sin descripción"}</p>
-        <div className="kpi-inline">
-          {fastKpis.map((item) => (
-            <div key={item.label} className="kpi-chip">
-              <p className="kpi-chip__label">{item.label}</p>
-              <p className="kpi-chip__value">{item.value}</p>
-            </div>
-          ))}
+    <section className={`event-operation-page${tab === "Acreditar" ? " event-operation-page--terminal" : ""}`}>
+      <header className={`card event-detail-header${tab === "Acreditar" ? " event-detail-header--compact" : ""}`}>
+        <div className="event-summary">
+          <div className="event-title">
+            <p className="label-md" style={{ marginBottom: "0.35rem" }}>
+              Evento seleccionado
+            </p>
+            <h1 className="display-sm">{eventQuery.data?.name}</h1>
+            <p className="lead">{eventQuery.data?.description ?? "Sin descripción"}</p>
+          </div>
+          <div className="kpi-inline metrics">
+            {fastKpis.map((item) => (
+              <div key={item.label} className="kpi-chip metric-card">
+                <p className="kpi-chip__label metric-label">{item.label}</p>
+                <p className="kpi-chip__value metric-value">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </header>
+      {uiNotice ? (
+        <p className="message-success" style={{ marginBottom: "1rem" }}>
+          {uiNotice}
+        </p>
+      ) : null}
 
-      <div className="tabs-strip">
-        {tabs.map((label) => (
+      {tab === "Acreditar" ? (
+        <section className="search-card">
+          <section className="terminal-section card accred-search-card">
+            <label className="label-md field-label search-label" htmlFor="live-cuil-search">
+              Buscar en base
+            </label>
+            <div className="search-cuil-form__input-wrap search-input-wrap">
+              <input
+                id="live-cuil-search"
+                autoFocus
+                autoComplete="off"
+                className="input cuil-mega search-input"
+                placeholder="CUIL / DNI / Nombre"
+                value={liveSearchInput}
+                onChange={(e) => {
+                  setUiNotice(null);
+                  setSearchedOnce(false);
+                  setLiveSearchInput(e.target.value);
+                }}
+              />
+              <div className="search-cuil-form__icon">
+                <Icon name="search" style={{ fontSize: "2.5rem", color: "var(--secondary-container)" }} />
+              </div>
+            </div>
+            <p className="search-cuil-form__hint search-help">Buscá y seleccioná una persona de la base para acreditar.</p>
+          </section>
+        </section>
+      ) : null}
+
+      <div className={`tabs-strip${tab === "Acreditar" ? " tabs-strip--compact" : ""}`}>
+        {visibleTabs.map((label) => (
           <button
             key={label}
             className={`tab-btn ${tab === label ? "active" : ""}`}
@@ -233,44 +406,106 @@ export function EventDetailPage() {
             {label}
           </button>
         ))}
+        <Link className="tab-btn tab-btn--informe" to={`/events/${id}/informe`} title="Informe post-evento y PDF">
+          <Icon name="description" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
+          Informe
+        </Link>
       </div>
 
       {tab === "Acreditar" ? (
-        <div className="two-cols">
-          <SearchByCuilPanel
-            onSearch={(cuil) => {
-              setLastSearchedCuil(cuil);
-              searchMutation.mutate(cuil);
-            }}
-          />
-          <div>
-            {selected ? (
-              <PersonSummaryCard eventPerson={selected} />
-            ) : (
-              <p style={{ color: "var(--on-surface-variant)", fontWeight: 600 }}>
-                Ingresá un CUIL para consultar identidad en este evento.
+        <div className="workspace panels-layout two-cols accred-layout accred-console accred-console--fit">
+          <div className="card panel results-panel accred-console__left">
+            {debouncedSearch.length < 2 ? (
+              <p style={{ color: "var(--on-surface-variant)", fontWeight: 600, margin: 0 }}>
+                Escribí al menos 2 caracteres para buscar personas en la base.
               </p>
-            )}
-            {selected?.status === "pending" ? (
-              <button className="btn btn-primary btn-hero" style={{ marginTop: "1rem" }} onClick={() => setShowConfirm(true)} type="button">
-                Acreditar
-              </button>
-            ) : null}
-            {searchMutation.isError ? (
+            ) : livePeopleQuery.isLoading || exactCuilQuery.isLoading ? (
+              <p className="page-state" style={{ padding: "1.25rem 0" }}>
+                Buscando...
+              </p>
+            ) : livePeopleQuery.isError || (normalizedDigits.length === 11 && exactCuilQuery.isError) ? (
+              <p className="message-error">No se pudo consultar la base en este momento. Reintentá.</p>
+            ) : (
               <>
-                <p className="message-warning">No encontrado en el evento.</p>
+                <p className="label-md field-label">Resultados ({displayRows.length})</p>
+                <div className="live-results-grid live-results-grid--dark">
+                  {displayRows.map((row) => (
+                    <button
+                      key={row.id}
+                      type="button"
+                      className={`live-result-card${selected?.id === row.id ? " live-result-card--active" : ""}`}
+                      onClick={() => {
+                        setSearchedOnce(true);
+                        setSelected(row as EventPerson);
+                        setLastSearchedCuil(row.person.cuilNormalized);
+                      }}
+                    >
+                      <p className="live-result-card__name">{`${row.person.lastName}, ${row.person.firstName}`}</p>
+                      <p className="live-result-card__meta">{row.person.cuilNormalized}</p>
+                      <p className="live-result-card__meta">{row.person.company ?? "Sin organismo"}</p>
+                      <p className="live-result-card__meta">{row.person.position ?? "Sin cargo"}</p>
+                      <span className={`status-pill status-pill--${row.status === "accredited" ? "active" : "draft"}`}>
+                        {row.status === "accredited" ? "Acreditado" : "Pendiente"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {!livePeopleQuery.isLoading &&
+            !exactCuilQuery.isLoading &&
+            !livePeopleQuery.isError &&
+            debouncedSearch.length >= 2 &&
+            displayRows.length === 0 ? (
+              <div style={{ marginTop: "1rem" }}>
+                <p className="message-warning">No hay coincidencias en la base para esta búsqueda.</p>
                 <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    style={{ marginTop: "0.75rem" }}
-                    onClick={() => setShowFueraDeBaseModal(true)}
+                    style={{ marginTop: "0.5rem" }}
+                    onClick={() => {
+                      setLastSearchedCuil(debouncedSearch.replace(/\D/g, ""));
+                      setUiNotice(null);
+                      setShowFueraDeBaseModal(true);
+                    }}
                   >
                     Acreditar fuera de base
                   </button>
                 </RoleGuard>
-              </>
+              </div>
             ) : null}
+          </div>
+          <div className="card panel detail-panel accred-console__right">
+            {selected ? (
+              <div className="accred-detail">
+                <div className="accred-detail__head">
+                  <h3 className="accred-detail__name">{`${selected.person.lastName}, ${selected.person.firstName}`}</h3>
+                  {selected?.status === "pending" ? (
+                    <button className="btn btn-danger" onClick={() => setShowConfirm(true)} type="button">
+                      <Icon name="verified" />
+                      Acreditar
+                    </button>
+                  ) : (
+                    <span className="status-pill status-pill--active">Acreditado</span>
+                  )}
+                </div>
+                <div className="accred-detail__rows">
+                  <p><strong>CUIL</strong> {selected.person.cuilNormalized}</p>
+                  <p><strong>DNI</strong> {selected.person.dni ?? "—"}</p>
+                  <p><strong>Organismo</strong> {selected.person.company ?? "—"}</p>
+                  <p><strong>Cargo</strong> {selected.person.position ?? "—"}</p>
+                  <p><strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}</p>
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: "var(--on-surface-variant)", fontWeight: 600 }}>
+                {debouncedSearch.length >= 2 && displayRows.length > 0 && !searchedOnce
+                  ? "Seleccioná una persona desde la lista para ver su detalle."
+                  : "Escribí y seleccioná una persona para ver su detalle."}
+              </p>
+            )}
+            {accreditMutation.isError ? <p className="message-error">No se pudo acreditar. Reintentá en unos segundos.</p> : null}
           </div>
           <ConfirmDialog
             open={showConfirm}
@@ -291,11 +526,17 @@ export function EventDetailPage() {
                   submitLabel={manualAndAccreditMutation.isPending ? "Procesando..." : "Registrar y acreditar"}
                   onSubmit={(values) => manualAndAccreditMutation.mutate(values as unknown as Record<string, unknown>)}
                 />
+                {manualAndAccreditMutation.isError ? (
+                  <p className="message-error">No se pudo registrar/acreditar fuera de base. Reintentá.</p>
+                ) : null}
                 <div className="row gap" style={{ justifyContent: "flex-end", marginTop: "0.75rem" }}>
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => setShowFueraDeBaseModal(false)}
+                    onClick={() => {
+                      setShowFueraDeBaseModal(false);
+                      setUiNotice(null);
+                    }}
                   >
                     Cerrar
                   </button>
@@ -438,6 +679,9 @@ export function EventDetailPage() {
                 <ManualPersonForm
                   onSubmit={(values) => manualMutation.mutate(values as unknown as Record<string, unknown>)}
                 />
+                {manualMutation.isError ? (
+                  <p className="message-error">No se pudo registrar la persona fuera de base.</p>
+                ) : null}
               </div>
             ) : null}
           </RoleGuard>
@@ -476,45 +720,242 @@ export function EventDetailPage() {
       {tab === "Actividad" ? <ActivityTimeline items={activityQuery.data ?? []} /> : null}
 
       {tab === "Dashboard" ? (
-        <div className="two-cols">
-          <section className="card">
-            <h3 className="display-sm" style={{ fontSize: "1.25rem" }}>
-              Timeline de acreditaciones
-            </h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={timelineQuery.data ?? []}>
-                <XAxis dataKey="bucket" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="count" stroke="var(--primary-container)" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </section>
-          <section className="card">
-            <h3 className="display-sm" style={{ fontSize: "1.25rem" }}>
-              Ranking de acreditadores
-            </h3>
-            <ol className="ranked-list">
-              {(rankingQuery.data ?? []).map((item: { userName: string; count: number }, index: number) => (
-                <li key={`${item.userName}-${index}`}>
-                  <strong>{item.userName}</strong>: {item.count}
-                </li>
-              ))}
-            </ol>
-          </section>
+        <div>
+          <p className="dashboard-charts-intro">
+            Visualización del estado del evento, el origen de los registros y la actividad en el tiempo.
+          </p>
+          {statsQuery.isLoading ? (
+            <p className="page-state">Cargando gráficos…</p>
+          ) : statsQuery.isError ? (
+            <p className="message-error">No se pudieron cargar los datos del dashboard. Reintentá.</p>
+          ) : (
+            <div className="dashboard-charts-grid">
+              <section className="card dashboard-chart-card">
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+                  Estado de acreditación
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
+                  Total de personas acreditadas frente a pendientes.
+                </p>
+                <div className="dashboard-chart-body">
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={statusBarData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                      <XAxis dataKey="estado" tick={{ fill: "var(--on-surface-variant)", fontSize: 12 }} />
+                      <YAxis tick={{ fill: "var(--on-surface-variant)", fontSize: 12 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--surface-container-high)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: 8
+                        }}
+                      />
+                      <Bar dataKey="cantidad" name="Personas" radius={[6, 6, 0, 0]}>
+                        {statusBarData.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              <section className="card dashboard-chart-card">
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+                  Registros por origen
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
+                  Cuántas filas vienen de la planilla importada y cuántas son altas manuales.
+                </p>
+                <div className="dashboard-chart-body">
+                  {originVolumeData.length === 0 ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      Todavía no hay personas cargadas en el evento.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Pie
+                          data={originVolumeData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={52}
+                          outerRadius={88}
+                          paddingAngle={2}
+                        >
+                          {originVolumeData.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--surface-container-high)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: 8
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: "0.85rem" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </section>
+
+              <section className="card dashboard-chart-card">
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+                  Acreditados por origen
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
+                  De las personas ya acreditadas, cuántas venían de base y cuántas se dieron de alta manual.
+                </p>
+                <div className="dashboard-chart-body">
+                  {accreditedByOriginData.length === 0 ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      Aún no hay acreditaciones registradas.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={260}>
+                      <PieChart>
+                        <Pie
+                          data={accreditedByOriginData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={52}
+                          outerRadius={88}
+                          paddingAngle={2}
+                        >
+                          {accreditedByOriginData.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[(i + 1) % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--surface-container-high)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: 8
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: "0.85rem" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </section>
+
+              <section className="card dashboard-chart-card dashboard-chart-card--wide">
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+                  Acreditaciones en el tiempo
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
+                  Cantidad de acreditaciones por hora (según la marca de tiempo guardada).
+                </p>
+                <div className="dashboard-chart-body">
+                  {timelineQuery.isLoading ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      Cargando serie temporal…
+                    </p>
+                  ) : (timelineQuery.data ?? []).length === 0 ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      No hay acreditaciones con hora registrada para graficar.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={timelineQuery.data ?? []} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                        <XAxis
+                          dataKey="bucket"
+                          tick={{ fill: "var(--on-surface-variant)", fontSize: 10 }}
+                          tickFormatter={formatTimelineTick}
+                          interval="preserveStartEnd"
+                          minTickGap={28}
+                        />
+                        <YAxis tick={{ fill: "var(--on-surface-variant)", fontSize: 12 }} allowDecimals={false} />
+                        <Tooltip
+                          labelFormatter={formatTimelineTick}
+                          contentStyle={{
+                            background: "var(--surface-container-high)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: 8
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="count"
+                          name="Acreditaciones"
+                          stroke={CHART_COLORS[0]}
+                          strokeWidth={2.5}
+                          dot={{ r: 3, fill: CHART_COLORS[0] }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </section>
+
+              <section className="card dashboard-chart-card dashboard-chart-card--wide">
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+                  Acreditaciones por operador
+                </h3>
+                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
+                  Total de acreditaciones registradas a nombre de cada usuario.
+                </p>
+                <div
+                  className="dashboard-chart-body"
+                  style={{ minHeight: Math.max(200, 48 + rankingBarData.length * 36) }}
+                >
+                  {rankingQuery.isLoading ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      Cargando ranking…
+                    </p>
+                  ) : rankingBarData.length === 0 ? (
+                    <p className="page-state" style={{ padding: "2rem 0" }}>
+                      Nadie acreditó todavía, o no hay usuario asociado a las acreditaciones.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={Math.max(200, 48 + rankingBarData.length * 36)}>
+                      <BarChart
+                        layout="vertical"
+                        data={rankingBarData}
+                        margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" horizontal={false} />
+                        <XAxis type="number" tick={{ fill: "var(--on-surface-variant)", fontSize: 12 }} allowDecimals={false} />
+                        <YAxis
+                          type="category"
+                          dataKey="userName"
+                          width={132}
+                          tick={{ fill: "var(--on-surface-variant)", fontSize: 11 }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "var(--surface-container-high)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: 8
+                          }}
+                        />
+                        <Bar dataKey="count" name="Acreditaciones" radius={[0, 6, 6, 0]}>
+                          {rankingBarData.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       ) : null}
 
       {tab === "Configuración" ? (
-        <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO"]} fallback={<p className="message-warning">Sin permisos de configuración.</p>}>
-          <section className="card">
-            <h3 className="display-sm" style={{ fontSize: "1.25rem" }}>
-              Configuración del evento
-            </h3>
-            <p style={{ color: "var(--on-surface-variant)" }}>
-              Gestión de usuarios asignados y estado del evento disponible vía API de administración.
-            </p>
-          </section>
+        <RoleGuard roles={["SUPERADMIN"]} fallback={<p className="message-warning">Solo el superadmin puede configurar accesos al evento.</p>}>
+          <EventAccessConfig eventId={id} />
         </RoleGuard>
       ) : null}
     </section>

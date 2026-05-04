@@ -23,13 +23,21 @@ export function DataTable<T>({ columns, rows }: Props<T>) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr key={index}>
-              {columns.map((column) => (
-                <td key={column.key}>{column.render(row)}</td>
-              ))}
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="table__empty">
+                No hay resultados para mostrar.
+              </td>
             </tr>
-          ))}
+          ) : (
+            rows.map((row, index) => (
+              <tr key={index}>
+                {columns.map((column) => (
+                  <td key={column.key}>{column.render(row)}</td>
+                ))}
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

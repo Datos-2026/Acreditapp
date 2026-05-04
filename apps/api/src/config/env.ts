@@ -15,7 +15,14 @@ const envSchema = z.object({
   COOKIE_SECURE: z
     .string()
     .optional()
-    .transform((value) => value === "true")
+    .transform((value) => value === "true"),
+  /** Solo servidor. Informe post-evento (Gemini). Opcional: sin clave, el análisis IA no se genera. */
+  GEMINI_API_KEY: z.string().optional(),
+  /**
+   * Modelo para el informe IA (Gemini API). Por defecto: Gemma 4 31B instruct.
+   * @see https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api
+   */
+  GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it")
 });
 
 export const env = envSchema.parse(process.env);

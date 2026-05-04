@@ -2,11 +2,13 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { userSchema } from "@gcba/shared";
+import { Prisma, UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { requireRoles } from "../../middlewares/rbac";
 import { validateBody } from "../../middlewares/validate";
 import { createAuditLog } from "../../lib/audit";
+import { AppError } from "../../middlewares/error-handler";
 
 const router = Router();
 
@@ -45,6 +47,14 @@ router.post("/", requireRoles("SUPERADMIN"), validateBody(createUserSchema), asy
         role: req.body.role,
         isActive: req.body.isActive ?? true,
         passwordHash
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true
       }
     });
     await createAuditLog({
@@ -56,6 +66,10 @@ router.post("/", requireRoles("SUPERADMIN"), validateBody(createUserSchema), asy
     });
     res.status(201).json(user);
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      next(new AppError("Ya existe un usuario con ese email", 409));
+      return;
+    }
     next(error);
   }
 });
@@ -85,7 +99,16 @@ router.patch("/:id", requireRoles("SUPERADMIN"), validateBody(patchUserSchema), 
     }
     const user = await prisma.user.update({
       where: { id: req.params.id },
-      data
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true
+      }
     });
     await createAuditLog({
       req,
@@ -95,6 +118,55 @@ router.patch("/:id", requireRoles("SUPERADMIN"), validateBody(patchUserSchema), 
       metadata: req.body
     });
     res.json(user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Acreditadores, admins de evento y lectura; no otras cuentas superadmin. */
+const DELETABLE_ROLES: UserRole[] = [UserRole.ACREDITADOR, UserRole.ADMIN_EVENTO, UserRole.LECTURA];
+
+router.delete("/:id", requireRoles("SUPERADMIN"), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    if (id === req.auth!.id) {
+      next(new AppError("No podés eliminar tu propio usuario", 400));
+      return;
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, role: true, email: true }
+    });
+    if (!target) {
+      next(new AppError("Usuario no encontrado", 404));
+      return;
+    }
+    if (!DELETABLE_ROLES.includes(target.role)) {
+      next(new AppError("No se pueden eliminar cuentas superadmin", 400));
+      return;
+    }
+
+    const imports = await prisma.importBatch.count({ where: { uploadedByUserId: id } });
+    if (imports > 0) {
+      next(
+        new AppError(
+          "No se puede eliminar: este usuario tiene importaciones registradas. Contactá a soporte o reasigná antes.",
+          409
+        )
+      );
+      return;
+    }
+
+    await prisma.user.delete({ where: { id } });
+    await createAuditLog({
+      req,
+      action: "user.delete",
+      entityType: "user",
+      entityId: id,
+      metadata: { email: target.email, role: target.role }
+    });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

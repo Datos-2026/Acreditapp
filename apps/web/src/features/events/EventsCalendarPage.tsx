@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { EventCardDto } from "@gcba/shared";
 import { formatDateTimeAr } from "@gcba/shared";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../../lib/api";
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
@@ -72,7 +72,9 @@ const statusLabel: Record<EventCardDto["status"], string> = {
 
 export function EventsCalendarPage() {
   const { user } = useAuth();
+  const location = useLocation();
   const canCreateEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
+  const newEventPath = location.pathname.startsWith("/admin") ? "/admin/eventos/nuevo" : "/eventos/nuevo";
   const today = useMemo(() => new Date(), []);
   const [cursor, setCursor] = useState(() => ({
     y: today.getFullYear(),
@@ -117,18 +119,14 @@ export function EventsCalendarPage() {
     <section className="events-cal-page">
       <div className="events-cal-page__head">
         <div>
-          <h1 className="display-sm">Eventos</h1>
+          <h1 className="display-sm">Calendario de eventos</h1>
           <p className="lead" style={{ marginBottom: 0 }}>
             Calendario mensual y detalle por día. Los eventos multi‑día aparecen en cada fecha del rango.
           </p>
         </div>
         <div className="events-cal-page__head-actions">
-          <Link to="/" className="btn btn-ghost">
-            <Icon name="dashboard" />
-            Vista panel
-          </Link>
           {canCreateEvent ? (
-            <Link to="/events/new" className="btn btn-primary">
+            <Link to={newEventPath} className="btn btn-primary">
               <Icon name="add" />
               Nuevo evento
             </Link>

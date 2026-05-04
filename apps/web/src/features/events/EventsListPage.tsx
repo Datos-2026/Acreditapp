@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { EventCardDto } from "@gcba/shared";
 import { api } from "../../lib/api";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { EventCard } from "../../components/EventCard";
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { useLastEvent } from "../../lib/lastEventContext";
 
-export function EventsHomePage() {
+export function EventsListPage() {
   const { user } = useAuth();
+  const location = useLocation();
   const { lastEventId, setLastEventId } = useLastEvent();
   const canCreateEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
+  const newEventPath = location.pathname.startsWith("/admin") ? "/admin/eventos/nuevo" : "/eventos/nuevo";
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>("all");
   const { data, isLoading } = useQuery({
@@ -43,26 +45,22 @@ export function EventsHomePage() {
 
   return (
     <section>
-      <div style={{ marginBottom: "2.5rem", display: "flex", flexWrap: "wrap", gap: "1.5rem", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ flex: "1 1 280px" }}>
-          <h1 className="display-sm">Panel de control</h1>
-          <p className="lead" style={{ marginBottom: 0 }}>
-            Gestión integral de accesos y acreditaciones para eventos institucionales.
+      <div className="page-header">
+        <div className="page-header__copy">
+          <h1 className="display-sm">Todos los eventos</h1>
+          <p className="lead page-header__lead">
+            Listado con búsqueda y filtros. Abrí un evento para operar terminal, importación y métricas.
           </p>
-          <div className="kpi-inline" style={{ marginTop: "1.25rem" }}>
+          <div className="kpi-inline page-header__kpis">
             <div className="kpi-chip">
-              <p className="kpi-chip__label">Eventos visibles</p>
+              <p className="kpi-chip__label">Coincidencias</p>
               <p className="kpi-chip__value">{filtered.length}</p>
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignSelf: "center" }}>
-          <Link to="/eventos" className="btn btn-ghost">
-            <Icon name="calendar_month" />
-            Calendario
-          </Link>
+        <div className="page-header__actions">
           {canCreateEvent ? (
-            <Link to="/events/new" className="btn btn-primary">
+            <Link to={newEventPath} className="btn btn-primary">
               <Icon name="add" />
               Nuevo evento
             </Link>
@@ -71,8 +69,8 @@ export function EventsHomePage() {
       </div>
 
       <div className="filters-bar card card--flat">
-        <div style={{ flex: "1 1 220px" }}>
-          <label className="label-md" htmlFor="filter-q" style={{ display: "block", marginBottom: "0.35rem" }}>
+        <div className="filters-bar__grow">
+          <label className="label-md field-label" htmlFor="filter-q">
             Buscar
           </label>
           <input
@@ -83,8 +81,8 @@ export function EventsHomePage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div style={{ flex: "0 1 200px" }}>
-          <label className="label-md" htmlFor="filter-status" style={{ display: "block", marginBottom: "0.35rem" }}>
+        <div className="filters-bar__fixed">
+          <label className="label-md field-label" htmlFor="filter-status">
             Estado
           </label>
           <select

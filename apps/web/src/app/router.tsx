@@ -1,25 +1,45 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "../components/ProtectedRoute";
-import { AppLayout } from "../components/AppLayout";
+import { EventShellLayout } from "../components/EventShellLayout";
+import { AdminLayout } from "../components/AdminLayout";
+import { EventsBrowseLayout } from "../components/EventsBrowseLayout";
+import { RoleBasedRedirect } from "../components/RoleBasedRedirect";
 import { LoginPage } from "../features/auth/LoginPage";
-import { EventsHomePage } from "../features/events/EventsHomePage";
+import { EventsListPage } from "../features/events/EventsListPage";
 import { EventsCalendarPage } from "../features/events/EventsCalendarPage";
 import { CreateEventPage } from "../features/events/CreateEventPage";
 import { EventDetailPage } from "../features/event-detail/EventDetailPage";
+import { EventReportPage } from "../features/event-report/EventReportPage";
+import { UsersAdminPage } from "../features/admin/UsersAdminPage";
+import { AdminHomePage } from "../features/admin/AdminHomePage";
 
 export function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<EventsHomePage />} />
-          <Route path="/eventos" element={<EventsCalendarPage />} />
-          <Route path="/events/new" element={<CreateEventPage />} />
-          <Route path="/events/:id" element={<EventDetailPage />} />
+        <Route path="/" element={<RoleBasedRedirect />} />
+
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminHomePage />} />
+          <Route path="usuarios" element={<UsersAdminPage />} />
+          <Route path="eventos" element={<EventsListPage />} />
+          <Route path="eventos/calendario" element={<EventsCalendarPage />} />
+          <Route path="eventos/nuevo" element={<CreateEventPage />} />
+        </Route>
+
+        <Route path="/events/:id" element={<EventShellLayout />}>
+          <Route index element={<EventDetailPage />} />
+          <Route path="informe" element={<EventReportPage />} />
+        </Route>
+
+        <Route element={<EventsBrowseLayout />}>
+          <Route path="/eventos" element={<EventsListPage />} />
+          <Route path="/eventos/calendario" element={<EventsCalendarPage />} />
+          <Route path="/eventos/nuevo" element={<CreateEventPage />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to="/" />} />
+      <Route path="*" element={<RoleBasedRedirect />} />
     </Routes>
   );
 }

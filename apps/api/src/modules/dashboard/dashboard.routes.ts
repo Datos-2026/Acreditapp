@@ -24,17 +24,41 @@ function buildTimelineBuckets(dates: Array<Date | null>): Array<{ bucket: string
 router.get("/:id/stats", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const [total, accredited, manual, today, latest] = await Promise.all([
-      prisma.eventPerson.count({ where: { eventId: req.params.id } }),
-      prisma.eventPerson.count({ where: { eventId: req.params.id, status: "accredited" } }),
-      prisma.eventPerson.count({ where: { eventId: req.params.id, source: "manual" } }),
+    const eventId = req.params.id;
+    const since24h = subDays(new Date(), 1);
+    const [
+      total,
+      accredited,
+      manual,
+      importedInBase,
+      pendingImported,
+      accreditedImported,
+      accreditedManual,
+      accreditedLast24h,
+      accreditorGroups,
+      importBatchCount,
+      latest
+    ] = await Promise.all([
+      prisma.eventPerson.count({ where: { eventId } }),
+      prisma.eventPerson.count({ where: { eventId, status: "accredited" } }),
+      prisma.eventPerson.count({ where: { eventId, source: "manual" } }),
+      prisma.eventPerson.count({ where: { eventId, source: "imported" } }),
+      prisma.eventPerson.count({ where: { eventId, source: "imported", status: "pending" } }),
+      prisma.eventPerson.count({ where: { eventId, source: "imported", status: "accredited" } }),
+      prisma.eventPerson.count({ where: { eventId, source: "manual", status: "accredited" } }),
       prisma.eventPerson.count({
         where: {
-          eventId: req.params.id,
+          eventId,
           status: "accredited",
-          accreditedAt: { gte: subDays(new Date(), 1) }
+          accreditedAt: { gte: since24h }
         }
       }),
+      prisma.eventPerson.groupBy({
+        by: ["accreditedByUserId"],
+        where: { eventId, status: "accredited", accreditedByUserId: { not: null } },
+        _count: true
+      }),
+      prisma.importBatch.count({ where: { eventId } }),
       prisma.auditLog.findMany({
         where: { entityType: "eventPerson" },
         include: { user: { select: { id: true, name: true } } },
@@ -47,8 +71,16 @@ router.get("/:id/stats", async (req, res, next) => {
       accredited,
       pending: Math.max(total - accredited, 0),
       manual,
-      accreditedToday: today,
+      importedInBase,
+      pendingImported,
+      accreditedImported,
+      accreditedManual,
+      accreditedToday: accreditedLast24h,
       accreditationPercent: total > 0 ? Number(((accredited / total) * 100).toFixed(2)) : 0,
+      accreditationPercentImportedBase:
+        importedInBase > 0 ? Number(((accreditedImported / importedInBase) * 100).toFixed(2)) : 0,
+      accreditorsActive: accreditorGroups.length,
+      importBatches: importBatchCount,
       latest
     });
   } catch (error) {

@@ -1,7 +1,9 @@
 import { Router } from "express";
+import bcrypt from "bcrypt";
 import { z } from "zod";
+import type { EventReportAiAnalysis } from "@gcba/shared";
 import { normalizeCuil, manualPersonSchema } from "@gcba/shared";
-import { EventPersonStatus, EventStatus } from "@prisma/client";
+import { EventPersonStatus, EventStatus, Prisma, UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { requireRoles } from "../../middlewares/rbac";
@@ -10,6 +12,8 @@ import { createAuditLog } from "../../lib/audit";
 import { AppError } from "../../middlewares/error-handler";
 import { ensureEventAccess } from "./event-access";
 import { ensureNotAlreadyAccredited } from "./event-logic";
+import { buildEventReportPayload } from "../reports/build-event-report";
+import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 
 const router = Router();
 router.use(requireAuth);
@@ -24,7 +28,14 @@ const eventSchema = z.object({
 });
 
 const assignUsersSchema = z.object({
-  userIds: z.array(z.string()).min(1)
+  userIds: z.array(z.string())
+});
+
+const createEventStaffUserSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(8, "Contraseña mínima de 8 caracteres"),
+  role: z.enum([UserRole.ADMIN_EVENTO, UserRole.ACREDITADOR, UserRole.LECTURA])
 });
 
 router.get("/", async (req, res, next) => {
@@ -180,6 +191,85 @@ router.get("/:id/export/accredited", async (req, res, next) => {
   }
 });
 
+/** Informe post-evento: métricas + análisis IA guardado (si existe). */
+router.get("/:id/report", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const payload = await buildEventReportPayload(req.params.id);
+    if (!payload) {
+      res.status(404).json({ message: "Evento no encontrado" });
+      return;
+    }
+    const cache = await prisma.eventReportAiCache.findUnique({
+      where: { eventId: req.params.id }
+    });
+    const aiAnalysis = cache?.analysis ? (cache.analysis as unknown as EventReportAiAnalysis) : null;
+    res.json({
+      ...payload,
+      aiAnalysis: aiAnalysis && isValidAiAnalysisShape(aiAnalysis) ? aiAnalysis : null,
+      aiAnalysisUpdatedAt: cache?.updatedAt.toISOString() ?? null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+function isValidAiAnalysisShape(x: EventReportAiAnalysis): boolean {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    typeof x.executiveSummary === "string" &&
+    Array.isArray(x.keyFindings)
+  );
+}
+
+/** Genera o devuelve análisis cacheado. Body: `{ regenerate?: true }` fuerza nueva llamada a Gemini. */
+router.post("/:id/report/ai", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const eventId = req.params.id;
+    const regenerate = Boolean(req.body?.regenerate);
+
+    const payload = await buildEventReportPayload(eventId);
+    if (!payload) {
+      res.status(404).json({ message: "Evento no encontrado" });
+      return;
+    }
+
+    if (!regenerate) {
+      const cached = await prisma.eventReportAiCache.findUnique({ where: { eventId } });
+      if (cached?.analysis && isValidAiAnalysisShape(cached.analysis as EventReportAiAnalysis)) {
+        res.json({
+          ok: true as const,
+          analysis: cached.analysis as unknown as EventReportAiAnalysis,
+          fromCache: true as const
+        });
+        return;
+      }
+    }
+
+    try {
+      const analysis = await runGeminiEventAnalysis(payload);
+      await prisma.eventReportAiCache.upsert({
+        where: { eventId },
+        create: { eventId, analysis: analysis as unknown as Prisma.InputJsonValue },
+        update: { analysis: analysis as unknown as Prisma.InputJsonValue }
+      });
+      res.json({ ok: true as const, analysis, fromCache: false as const });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Error desconocido";
+      res.status(200).json({
+        ok: false as const,
+        error: message,
+        analysis: null,
+        fromCache: false as const
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/:id", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
@@ -192,6 +282,19 @@ router.get("/:id", async (req, res, next) => {
         eventPeople: {
           where: { status: EventPersonStatus.accredited },
           select: { id: true }
+        },
+        eventUsers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                isActive: true
+              }
+            }
+          }
         }
       }
     });
@@ -225,7 +328,7 @@ router.patch("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(ev
   }
 });
 
-router.post("/:id/users", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(assignUsersSchema), async (req, res, next) => {
+router.post("/:id/users", requireRoles("SUPERADMIN"), validateBody(assignUsersSchema), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
     await prisma.eventUser.deleteMany({ where: { eventId: req.params.id } });
@@ -248,6 +351,77 @@ router.post("/:id/users", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBo
   }
 });
 
+/** Crea un usuario operativo y lo agrega al acceso del evento en una sola transacción. */
+router.post(
+  "/:id/users/create-and-assign",
+  requireRoles("SUPERADMIN"),
+  validateBody(createEventStaffUserSchema),
+  async (req, res, next) => {
+    const eventId = req.params.id;
+    try {
+      await ensureEventAccess(eventId, req.auth!.id, req.auth!.role === "SUPERADMIN");
+
+      const email = req.body.email.trim().toLowerCase();
+      const { user, assignedUserIds } = await prisma.$transaction(async (tx) => {
+        const passwordHash = await bcrypt.hash(req.body.password, 12);
+        const created = await tx.user.create({
+          data: {
+            name: req.body.name.trim(),
+            email,
+            role: req.body.role,
+            isActive: true,
+            passwordHash
+          },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            isActive: true,
+            createdAt: true
+          }
+        });
+
+        const existing = await tx.eventUser.findMany({
+          where: { eventId },
+          select: { userId: true }
+        });
+        const userIds = [...new Set([...existing.map((e) => e.userId), created.id])];
+
+        await tx.eventUser.deleteMany({ where: { eventId } });
+        await tx.eventUser.createMany({
+          data: userIds.map((userId) => ({ eventId, userId }))
+        });
+
+        return { user: created, assignedUserIds: userIds };
+      });
+
+      await createAuditLog({
+        req,
+        action: "user.create",
+        entityType: "user",
+        entityId: user.id,
+        metadata: { role: user.role, eventId, withEventAccess: true }
+      });
+      await createAuditLog({
+        req,
+        action: "event.assignUsers",
+        entityType: "event",
+        entityId: eventId,
+        metadata: { userIds: assignedUserIds }
+      });
+
+      res.status(201).json(user);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        next(new AppError("Ya existe un usuario con ese email", 409));
+        return;
+      }
+      next(error);
+    }
+  }
+);
+
 router.get("/:id/people", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
@@ -267,8 +441,8 @@ router.get("/:id/people", async (req, res, next) => {
         ? {
             OR: [
               { person: { cuilNormalized: { contains: normalizeCuil(q) } } },
-              { person: { firstName: { contains: q, mode: "insensitive" as const } } },
-              { person: { lastName: { contains: q, mode: "insensitive" as const } } },
+              { person: { firstName: { contains: q } } },
+              { person: { lastName: { contains: q } } },
               { person: { dni: { contains: q } } }
             ]
           }

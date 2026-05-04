@@ -6,7 +6,7 @@ import { api, setAccessToken } from "../../lib/api";
 type AuthContextValue = {
   user: AuthUser | null;
   accessToken: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
 };
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setAccessToken(response.data.accessToken);
     const me = await api.get<AuthUser>("/auth/me");
     setUser(me.data);
+    return me.data;
   };
 
   const logout = async () => {
