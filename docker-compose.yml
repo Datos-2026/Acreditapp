@@ -1,4 +1,24 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gcba-acreditacion-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/gcba_acreditacion?schema=public
+      API_PORT: 3000
+      JWT_ACCESS_SECRET: dev_access_secret_change_me
+      JWT_REFRESH_SECRET: dev_refresh_secret_change_me
+      ACCESS_TOKEN_TTL_MINUTES: 15
+      REFRESH_TOKEN_TTL_DAYS: 7
+      CORS_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+    ports:
+      - "3000:3000"
+
   postgres:
     image: postgres:16-alpine
     container_name: gcba-acreditacion-db

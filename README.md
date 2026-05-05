@@ -188,6 +188,14 @@ npm run dev
 
 Abrí **solo** la web en `http://localhost:5173`: las llamadas a `/api/v1` las reenvía Vite al backend en `http://localhost:4000` (mismo origen en el navegador que en producción con Docker en el puerto 3000). La API sigue escuchando en 4000 para el proxy.
 
+### Levantar app completa en Docker (backend sirviendo frontend estático en `3000`)
+
+```bash
+docker compose up -d --build app postgres
+```
+
+La aplicación queda disponible en `http://localhost:3000`, con Express sirviendo `/api/v1` y el frontend compilado de `apps/web/dist`.
+
 ### Si falla la base o `prisma generate` (Windows)
 
 **`P1001: Can't reach database server`**  
