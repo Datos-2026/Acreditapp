@@ -29,7 +29,7 @@ RUN npm run build -w @gcba/web
 RUN npm run build -w @gcba/api
 
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENV NODE_ENV=production
 ENV API_PORT=3000

@@ -73,13 +73,17 @@ app.use("/api/v1/events", importsRoutes);
 app.use("/api/v1/events", dashboardRoutes);
 app.use("/api/v1/imports", importDetailRoutes);
 
-/** Compilado en `dist/src/*.js` → subir tres niveles hasta la raíz del workspace `apps/`. */
+/** Soporta runtime desde `src` (tsx) y desde `dist/src` (node). */
 const __dirnameApp = path.dirname(fileURLToPath(import.meta.url));
-const webDistPath =
-  process.env.WEB_DIST_PATH ?? path.resolve(__dirnameApp, "../../../web/dist");
-const spaIndexPath = path.join(webDistPath, "index.html");
+const webDistCandidates = process.env.WEB_DIST_PATH
+  ? [process.env.WEB_DIST_PATH]
+  : [path.resolve(__dirnameApp, "../../web/dist"), path.resolve(__dirnameApp, "../../../web/dist")];
+const webDistPath = webDistCandidates.find((candidate) =>
+  fs.existsSync(path.join(candidate, "index.html"))
+);
+const spaIndexPath = webDistPath ? path.join(webDistPath, "index.html") : "";
 
-if (fs.existsSync(spaIndexPath)) {
+if (webDistPath && fs.existsSync(spaIndexPath)) {
   app.use(express.static(webDistPath, { index: false }));
   logger.info({ webDistPath }, "Sirviendo frontend estático");
 }
@@ -89,7 +93,7 @@ const spaFallback: RequestHandler = (req, res, next) => {
     res.status(404).json({ message: "Recurso no encontrado" });
     return;
   }
-  if (fs.existsSync(spaIndexPath)) {
+  if (spaIndexPath && fs.existsSync(spaIndexPath)) {
     res.sendFile(spaIndexPath);
     return;
   }

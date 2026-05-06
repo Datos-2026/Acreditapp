@@ -8,7 +8,7 @@ services:
     depends_on:
       - postgres
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/gcba_acreditacion?schema=public
+      DATABASE_URL: postgresql://postgres:88cbb2c0-beef-470a-b6b6-639c8f27da62@vpn.helio3.co:5433/acreditapp?schema=public&sslmode=disable
       API_PORT: 3000
       JWT_ACCESS_SECRET: dev_access_secret_change_me
       JWT_REFRESH_SECRET: dev_refresh_secret_change_me
