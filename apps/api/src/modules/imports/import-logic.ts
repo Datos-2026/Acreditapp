@@ -23,7 +23,13 @@ function parseAyn(value: string): { nombre?: string; apellido?: string } {
 export function normalizeImportCanonical(canonical: Record<string, unknown>): Record<string, unknown> {
   const normalized = { ...canonical };
 
+  const nombre = String(normalized.nombre ?? "").trim();
+  const apellido = String(normalized.apellido ?? "").trim();
   const ayn = String(normalized.nombreCompleto ?? "").trim();
+  if (!ayn && (nombre || apellido)) {
+    normalized.nombreCompleto = [apellido, nombre].filter(Boolean).join(", ");
+  }
+
   if ((!normalized.nombre || !normalized.apellido) && ayn) {
     const parsed = parseAyn(ayn);
     if (!normalized.nombre && parsed.nombre) normalized.nombre = parsed.nombre;
@@ -32,6 +38,9 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
 
   if (normalized.cuit && !normalized.cuil) {
     normalized.cuil = normalized.cuit;
+  }
+  if (normalized.cuil && !normalized.cuit) {
+    normalized.cuit = normalized.cuil;
   }
 
   return normalized;

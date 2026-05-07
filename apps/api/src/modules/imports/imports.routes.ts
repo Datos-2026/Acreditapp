@@ -40,25 +40,43 @@ const confirmSchema = z.object({
 });
 
 function autoDetectMapping(headers: string[]) {
-  const map: Record<string, string> = {};
-  headers.forEach((header) => {
-    const normalized = header
+  const normalizeHeader = (header: string) =>
+    header
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
+      .replace(/["'¿?]/g, "")
       .replace(/\s+/g, " ")
       .trim();
+
+  const map: Record<string, string> = {};
+  headers.forEach((header) => {
+    const normalized = normalizeHeader(header);
     if (normalized.includes("cuil") || normalized.includes("cuit")) map[header] = "cuil";
     else if (normalized === "ayn" || normalized.includes("apellido y nombre")) map[header] = "nombreCompleto";
-    else if (normalized.includes("nombre")) map[header] = "nombre";
-    else if (normalized.includes("apellido")) map[header] = "apellido";
+    else if (normalized === "nombre/s" || normalized === "nombres" || normalized === "nombre") map[header] = "nombre";
+    else if (normalized === "apellido/s" || normalized === "apellidos" || normalized === "apellido")
+      map[header] = "apellido";
     else if (normalized.includes("dni")) map[header] = "dni";
-    else if (normalized.includes("mail") || normalized === "email") map[header] = "email";
-    else if (normalized.includes("telefono") || normalized.includes("tel")) map[header] = "telefono";
+    else if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email")
+      map[header] = "email";
+    else if (
+      normalized.includes("telefono celular") ||
+      normalized.includes("numero de telefono") ||
+      normalized.includes("telefono") ||
+      normalized.includes("tel")
+    )
+      map[header] = "telefono";
+    else if (normalized === "rol") map[header] = "cargo";
     else if (normalized.includes("area")) map[header] = "cargo";
     else if (normalized.includes("empresa")) map[header] = "empresa";
     else if (normalized.includes("cargo")) map[header] = "cargo";
-    else if (normalized.includes("obs") || normalized.includes("reconocidos")) map[header] = "observaciones";
+    else if (
+      normalized.includes("obs") ||
+      normalized.includes("reconocidos") ||
+      normalized.includes("en cual de las siguientes fechas vas a participar")
+    )
+      map[header] = "observaciones";
   });
   return map;
 }
