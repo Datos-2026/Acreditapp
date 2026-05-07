@@ -67,7 +67,7 @@ function autoDetectMapping(headers: string[]) {
       normalized.includes("tel")
     )
       map[header] = "telefono";
-    else if (normalized === "rol") map[header] = "cargo";
+    else if (/^rol([ _-]?\d+)?$/i.test(normalized)) map[header] = "cargo";
     else if (normalized.includes("area")) map[header] = "cargo";
     else if (normalized.includes("empresa")) map[header] = "empresa";
     else if (normalized.includes("cargo")) map[header] = "cargo";
