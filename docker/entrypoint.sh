@@ -4,7 +4,7 @@ cd /app/apps/api
 
 if [ "${SKIP_DB_MIGRATE:-0}" != "1" ] && [ -n "${DATABASE_URL:-}" ]; then
   echo "[entrypoint] prisma migrate deploy"
-  npx prisma migrate deploy --schema prisma/schema.prisma
+  npm run db:migrate
 fi
 
 exec node dist/src/server.js

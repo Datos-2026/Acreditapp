@@ -16,7 +16,7 @@ if (!fs.existsSync(schema)) {
   process.exit(0);
 }
 
-execSync("npx prisma generate --schema prisma/schema.prisma", {
+execSync("node scripts/run-prisma.cjs generate --schema prisma/schema.prisma", {
   stdio: "inherit",
   cwd: apiRoot,
   env: process.env
