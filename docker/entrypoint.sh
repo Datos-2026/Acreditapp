@@ -7,4 +7,4 @@ if [ "${SKIP_DB_MIGRATE:-0}" != "1" ] && [ -n "${DATABASE_URL:-}" ]; then
   npm run db:migrate
 fi
 
-exec npx tsx src/server.ts
+exec node dist/src/server.js
