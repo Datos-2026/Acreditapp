@@ -11,7 +11,12 @@ export function ImportWizard({ eventId }: Props) {
   const [result, setResult] = useState<null | {
     originalFilename: string;
     sheetName: string;
-    previewRows: Array<{ rowNumber: number; canonical: Record<string, unknown>; errors: string[] }>;
+    previewRows: Array<{
+      rowNumber: number;
+      canonical: Record<string, unknown>;
+      extraData?: Record<string, unknown>;
+      errors: string[];
+    }>;
     summary: Record<string, unknown>;
     mapping: Record<string, string>;
   }>(null);
@@ -24,7 +29,12 @@ export function ImportWizard({ eventId }: Props) {
   const preview = async (): Promise<{
     originalFilename: string;
     sheetName: string;
-    previewRows: Array<{ rowNumber: number; canonical: Record<string, unknown>; errors: string[] }>;
+    previewRows: Array<{
+      rowNumber: number;
+      canonical: Record<string, unknown>;
+      extraData?: Record<string, unknown>;
+      errors: string[];
+    }>;
     summary: Record<string, unknown>;
     mapping: Record<string, string>;
   } | null> => {
