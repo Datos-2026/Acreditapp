@@ -963,6 +963,71 @@ a.tab-btn--informe {
   }
 }
 
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0.75rem 0.9rem;
+    gap: 0.5rem;
+  }
+
+  .topbar__actions {
+    gap: 0.35rem;
+  }
+
+  .icon-btn {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .sidebar-brand {
+    padding: 0 1rem 1rem;
+  }
+
+  .sidebar-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 0.35rem;
+  }
+
+  .sidebar-link {
+    white-space: nowrap;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.68rem;
+  }
+
+  .page-canvas {
+    padding: 0.9rem;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
+  .tabs-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.35rem;
+  }
+
+  .tab-btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .row.gap {
+    flex-wrap: wrap;
+  }
+
+  .table th,
+  .table td {
+    padding: 0.65rem 0.7rem;
+    font-size: 0.75rem;
+  }
+}
+
 .metric {
   border-left: 4px solid var(--tertiary-fixed);
 }

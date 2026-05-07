@@ -10,41 +10,60 @@ type Props = {
 };
 
 export function ImportPreviewTable({ rows }: Props) {
+  const normalizeHeader = (header: string) =>
+    header
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const isNoiseColumn = (header: string) => {
+    const normalized = normalizeHeader(header);
+    if (!normalized) return true;
+    if (normalized === "marca temporal") return true;
+    if (/^column\s*\d+$/i.test(normalized)) return true;
+    if (/^rol\s*\d+$/i.test(normalized)) return true;
+    return false;
+  };
+
   const extraColumns = Array.from(
     new Set(rows.flatMap((row) => Object.keys(row.extraData ?? {})))
-  );
+  ).filter((column) => !isNoiseColumn(column));
 
   return (
     <div className="card">
       <h3>Preview de importación</h3>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Fila</th>
-            <th>CUIL</th>
-            <th>Nombre</th>
-            <th>Apellido</th>
-            {extraColumns.map((column) => (
-              <th key={column}>{column}</th>
-            ))}
-            <th>Errores</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.rowNumber}>
-              <td>{row.rowNumber}</td>
-              <td>{String(row.canonical.cuil ?? "-")}</td>
-              <td>{String(row.canonical.nombre ?? "-")}</td>
-              <td>{String(row.canonical.apellido ?? "-")}</td>
+      <div className="table-wrapper">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Fila</th>
+              <th>CUIL</th>
+              <th>Nombre</th>
+              <th>Apellido</th>
               {extraColumns.map((column) => (
-                <td key={column}>{String(row.extraData?.[column] ?? "-")}</td>
+                <th key={column}>{column}</th>
               ))}
-              <td>{row.errors.length > 0 ? row.errors.join(", ") : "OK"}</td>
+              <th>Errores</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.rowNumber}>
+                <td>{row.rowNumber}</td>
+                <td>{String(row.canonical.cuil ?? "-")}</td>
+                <td>{String(row.canonical.nombre ?? "-")}</td>
+                <td>{String(row.canonical.apellido ?? "-")}</td>
+                {extraColumns.map((column) => (
+                  <td key={column}>{String(row.extraData?.[column] ?? "-")}</td>
+                ))}
+                <td>{row.errors.length > 0 ? row.errors.join(", ") : "OK"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
