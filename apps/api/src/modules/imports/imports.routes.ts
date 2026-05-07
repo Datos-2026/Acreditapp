@@ -13,7 +13,7 @@ import { normalizeImportCanonical, validateImportRow } from "./import-logic";
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }
+  limits: { fileSize: 15 * 1024 * 1024 }
 });
 
 const canonicalFields = [
@@ -93,13 +93,15 @@ router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
     }
 
     const workbook = XLSX.read(req.file.buffer);
-    if (!workbook.SheetNames.includes(REQUIRED_SHEET_NAME)) {
+    const sheetName = workbook.SheetNames.includes(REQUIRED_SHEET_NAME)
+      ? REQUIRED_SHEET_NAME
+      : (workbook.SheetNames[0] ?? "");
+    if (!sheetName) {
       res.status(400).json({
-        message: `El archivo debe incluir la hoja '${REQUIRED_SHEET_NAME}'.`
+        message: "El archivo no contiene hojas para importar."
       });
       return;
     }
-    const sheetName = REQUIRED_SHEET_NAME;
     const sheet = workbook.Sheets[sheetName];
     const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
     const headers = jsonRows[0] ? Object.keys(jsonRows[0]) : [];

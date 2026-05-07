@@ -17,27 +17,70 @@ export function ImportWizard({ eventId }: Props) {
   }>(null);
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const preview = async () => {
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    const response = await api.post(`/events/${eventId}/imports/preview`, formData);
-    setResult(response.data);
-    setStep(2);
+  const preview = async (): Promise<{
+    originalFilename: string;
+    sheetName: string;
+    previewRows: Array<{ rowNumber: number; canonical: Record<string, unknown>; errors: string[] }>;
+    summary: Record<string, unknown>;
+    mapping: Record<string, string>;
+  } | null> => {
+    if (!file) return null;
+    setErrorMessage(null);
+    setIsPreviewing(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await api.post(`/events/${eventId}/imports/preview`, formData);
+      setResult(response.data);
+      setStep(2);
+      return response.data;
+    } catch (error: unknown) {
+      const apiMessage =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : null;
+      setErrorMessage(apiMessage ?? "No se pudo previsualizar el archivo. Revisá que tenga hoja BASE y columnas válidas.");
+      return null;
+    } finally {
+      setIsPreviewing(false);
+    }
   };
 
   const confirm = async () => {
-    if (!result || !file) return;
-    await api.post(`/events/${eventId}/imports/confirm`, {
-      eventId,
-      originalFilename: result.originalFilename,
-      sheetName: result.sheetName,
-      rows: result.previewRows.map((row) => row.canonical),
-      mapping: undefined
-    });
-    setStep(3);
-    alert("Importación confirmada");
+    if (!file) return;
+    setErrorMessage(null);
+    setIsConfirming(true);
+    try {
+      const activeResult = result ?? (await preview());
+      if (!activeResult) return;
+      await api.post(`/events/${eventId}/imports/confirm`, {
+        eventId,
+        originalFilename: activeResult.originalFilename,
+        sheetName: activeResult.sheetName,
+        rows: activeResult.previewRows.map((row) => row.canonical),
+        mapping: undefined
+      });
+      setStep(3);
+      alert("Importación confirmada");
+    } catch (error: unknown) {
+      const apiMessage =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : null;
+      setErrorMessage(apiMessage ?? "No se pudo confirmar la importación.");
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   return (
@@ -89,18 +132,24 @@ export function ImportWizard({ eventId }: Props) {
             setFile(event.target.files?.[0] ?? null);
             setStep(1);
             setResult(null);
+            setErrorMessage(null);
           }}
         />
         <div className="row gap" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
-          <button className="btn btn-secondary" onClick={preview} type="button" disabled={!file}>
+          <button className="btn btn-secondary" onClick={preview} type="button" disabled={!file || isPreviewing || isConfirming}>
             <Icon name="visibility" />
-            Previsualizar
+            {isPreviewing ? "Previsualizando..." : "Previsualizar"}
           </button>
-          <button className="btn btn-primary" onClick={confirm} type="button" disabled={!result || step < 2}>
+          <button className="btn btn-primary" onClick={confirm} type="button" disabled={!file || isConfirming || isPreviewing}>
             <Icon name="check_circle" />
-            Confirmar importación
+            {isConfirming ? "Importando..." : "Confirmar importación"}
           </button>
         </div>
+        {errorMessage ? (
+          <p className="message-error" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+            {errorMessage}
+          </p>
+        ) : null}
       </section>
 
       {result ? (
