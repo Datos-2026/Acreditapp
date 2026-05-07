@@ -427,6 +427,62 @@
   font-style: italic;
 }
 
+@media (max-width: 768px) {
+  .event-report-screen {
+    padding: 0.5rem 0.5rem 1rem;
+  }
+
+  .event-report-toolbar.no-print,
+  .event-report-toolbar__actions {
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .event-report-toolbar.no-print .btn,
+  .event-report-toolbar__actions .btn {
+    width: 100%;
+  }
+
+  .event-report-page {
+    min-height: auto;
+    padding: 14px;
+  }
+
+  .er-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .er-event-meta {
+    text-align: left;
+    min-width: 0;
+  }
+
+  .er-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .er-section-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .er-panel {
+    padding: 12px;
+  }
+
+  .er-chart-h {
+    height: 210px;
+  }
+
+  .er-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
 @media print {
   /* Solo el documento del informe: ocultar shell de la app (sidebar, topbar, márgenes del canvas). */
   html.event-informe-print,

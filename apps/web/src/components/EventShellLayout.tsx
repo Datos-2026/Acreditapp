@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "../features/auth/auth-context";
 import { Icon } from "./Icon";
@@ -13,6 +14,11 @@ export function EventShellLayout() {
   const tab = new URLSearchParams(location.search).get("tab") || "terminal";
   const isInformeRoute = location.pathname.endsWith("/informe");
   const isTerminalView = !isInformeRoute && tab === "terminal";
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname, location.search]);
 
   const eventPath = (t: string) => `/events/${eventId}?tab=${t}`;
   const linkClass = (active: boolean) => `sidebar-link${active ? " sidebar-link--active" : ""}`;
@@ -22,7 +28,7 @@ export function EventShellLayout() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar${mobileMenuOpen ? " sidebar--mobile-open" : ""}`}>
         <div className="sidebar-brand">
           <div className="sidebar-brand__row">
             <div className="sidebar-brand__icon">
@@ -64,10 +70,19 @@ export function EventShellLayout() {
           </button>
         </div>
       </aside>
+      {mobileMenuOpen ? <button type="button" className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)} /> : null}
 
       <main className="main-content">
         <header className={`topbar${isTerminalView ? " topbar--terminal" : ""}`}>
           <div className="topbar__left">
+            <button
+              type="button"
+              className="icon-btn topbar__menu-trigger"
+              aria-label="Abrir menú"
+              onClick={() => setMobileMenuOpen((current) => !current)}
+            >
+              <Icon name={mobileMenuOpen ? "close" : "menu"} />
+            </button>
             <span className="topbar__brand">GCBA | Acreditación</span>
             <>
               <span className="topbar__divider">/</span>

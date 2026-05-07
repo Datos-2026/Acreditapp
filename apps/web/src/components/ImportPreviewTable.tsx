@@ -34,7 +34,7 @@ export function ImportPreviewTable({ rows }: Props) {
   return (
     <div className="card">
       <h3>Preview de importación</h3>
-      <div className="table-wrapper">
+      <div className="table-wrapper import-preview-table">
         <table className="table">
           <thead>
             <tr>
@@ -63,6 +63,47 @@ export function ImportPreviewTable({ rows }: Props) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="import-preview-mobile">
+        {rows.map((row) => (
+          <article key={row.rowNumber} className="import-preview-card">
+            <div className="import-preview-card__head">
+              <strong>Fila {row.rowNumber}</strong>
+              <span className={`status-pill ${row.errors.length > 0 ? "status-pill--draft" : "status-pill--active"}`}>
+                {row.errors.length > 0 ? "Con errores" : "OK"}
+              </span>
+            </div>
+            <div className="import-preview-card__grid">
+              <p>
+                <strong>CUIL</strong>
+                <span>{String(row.canonical.cuil ?? "-")}</span>
+              </p>
+              <p>
+                <strong>Nombre</strong>
+                <span>{String(row.canonical.nombre ?? "-")}</span>
+              </p>
+              <p>
+                <strong>Apellido</strong>
+                <span>{String(row.canonical.apellido ?? "-")}</span>
+              </p>
+            </div>
+            {extraColumns.length > 0 ? (
+              <div className="import-preview-card__extra">
+                {extraColumns.map((column) => (
+                  <p key={column}>
+                    <strong>{column}</strong>
+                    <span>{String(row.extraData?.[column] ?? "-")}</span>
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {row.errors.length > 0 ? (
+              <p className="message-error" style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                {row.errors.join(", ")}
+              </p>
+            ) : null}
+          </article>
+        ))}
       </div>
     </div>
   );

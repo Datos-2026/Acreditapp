@@ -258,7 +258,7 @@ export function UsersAdminPage() {
         ) : usersQuery.isError ? (
           <p className="message-error">No se pudo cargar el listado.</p>
         ) : (
-          <div style={{ overflowX: "auto", marginTop: "1rem" }}>
+          <div className="users-admin-table" style={{ overflowX: "auto", marginTop: "1rem" }}>
             <table className="data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
               <thead>
                 <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
@@ -368,6 +368,80 @@ export function UsersAdminPage() {
             </table>
           </div>
         )}
+        {!usersQuery.isLoading && !usersQuery.isError ? (
+          <div className="users-admin-mobile-list">
+            {sorted.map((u) => (
+              <article key={`mobile-${u.id}`} className="users-admin-mobile-card">
+                <p className="users-admin-mobile-card__title">
+                  <strong>{u.name}</strong>
+                  {u.id === authUser?.id ? <span>(vos)</span> : null}
+                </p>
+                <p className="users-admin-mobile-card__meta">{u.email}</p>
+                <div className="users-admin-mobile-card__field">
+                  <label className="label-md">Rol</label>
+                  <select
+                    className="input"
+                    value={u.role}
+                    disabled={patchMutation.isPending || u.id === authUser?.id}
+                    onChange={(e) => patchMutation.mutate({ id: u.id, body: { role: e.target.value as AppRole } })}
+                  >
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r] ?? r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <label className="users-admin-mobile-card__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={u.isActive}
+                    disabled={patchMutation.isPending || u.id === authUser?.id}
+                    onChange={() => patchMutation.mutate({ id: u.id, body: { isActive: !u.isActive } })}
+                  />
+                  Activo
+                </label>
+                <div className="users-admin-mobile-card__field">
+                  <label className="label-md">Nueva contraseña</label>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Opcional"
+                    value={rowPassword[u.id] ?? ""}
+                    onChange={(e) => setRowPassword((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="row gap users-admin-mobile-card__actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={passwordMutation.isPending || u.id === authUser?.id || (rowPassword[u.id] ?? "").length < 8}
+                    onClick={() => {
+                      const p = rowPassword[u.id] ?? "";
+                      if (p.length >= 8) passwordMutation.mutate({ id: u.id, password: p });
+                    }}
+                  >
+                    {passwordMutation.isPending ? "Actualizando…" : "Actualizar contraseña"}
+                  </button>
+                  {canDeleteUser(u) ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleteTarget(u);
+                      }}
+                    >
+                      Eliminar usuario
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
         {deleteError ? <p className="message-error" style={{ marginTop: "0.75rem" }}>{deleteError}</p> : null}
         {passwordMutation.isError ? (
           <p className="message-error" style={{ marginTop: "0.75rem" }}>

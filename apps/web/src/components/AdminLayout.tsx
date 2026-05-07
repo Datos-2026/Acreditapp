@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../features/auth/auth-context";
 import { Icon } from "./Icon";
@@ -6,6 +7,11 @@ import { Icon } from "./Icon";
 export function AdminLayout() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname, location.search]);
 
   if (user?.role !== "SUPERADMIN") {
     return <Navigate to="/eventos" replace />;
@@ -19,7 +25,7 @@ export function AdminLayout() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar${mobileMenuOpen ? " sidebar--mobile-open" : ""}`}>
         <div className="sidebar-brand">
           <div className="sidebar-brand__row">
             <div className="sidebar-brand__icon">
@@ -52,10 +58,19 @@ export function AdminLayout() {
           </button>
         </div>
       </aside>
+      {mobileMenuOpen ? <button type="button" className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)} /> : null}
 
       <main className="main-content">
         <header className="topbar">
           <div className="topbar__left">
+            <button
+              type="button"
+              className="icon-btn topbar__menu-trigger"
+              aria-label="Abrir menú"
+              onClick={() => setMobileMenuOpen((current) => !current)}
+            >
+              <Icon name={mobileMenuOpen ? "close" : "menu"} />
+            </button>
             <span className="topbar__brand">GCBA | Acreditación</span>
             <span className="topbar__divider">/</span>
             <span className="topbar__context">Panel administración</span>
