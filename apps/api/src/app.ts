@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import express, { type RequestHandler } from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -73,8 +72,8 @@ app.use("/api/v1/events", importsRoutes);
 app.use("/api/v1/events", dashboardRoutes);
 app.use("/api/v1/imports", importDetailRoutes);
 
-/** Compilado en `dist/src/*.js` → subir tres niveles hasta la raíz del workspace `apps/`. */
-const __dirnameApp = path.dirname(fileURLToPath(import.meta.url));
+/** Built to `dist/src/*.js` → three levels up to the `apps/` workspace folder. */
+const __dirnameApp = __dirname;
 const webDistPath =
   process.env.WEB_DIST_PATH ?? path.resolve(__dirnameApp, "../../../web/dist");
 const spaIndexPath = path.join(webDistPath, "index.html");

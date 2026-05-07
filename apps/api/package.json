@@ -2,11 +2,10 @@
   "name": "@gcba/api",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
   "scripts": {
     "postinstall": "node scripts/postinstall-prisma.cjs",
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build -w @gcba/shared && tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json && node scripts/copy-prisma-generated.cjs",
     "start": "node dist/src/server.js",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "vitest run",

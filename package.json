@@ -12,7 +12,7 @@
     "dev": "concurrently \"npm run dev -w @gcba/api\" \"npm run dev -w @gcba/web\"",
     "dev:api": "npm run dev -w @gcba/api",
     "dev:web": "npm run dev -w @gcba/web",
-    "build": "npm run build -ws",
+    "build": "npm run build -w @gcba/shared && npm run build -w @gcba/api && npm run build -w @gcba/web",
     "lint": "npm run lint -ws",
     "test": "npm run test -ws",
     "db:migrate": "npm run db:migrate -w @gcba/api",

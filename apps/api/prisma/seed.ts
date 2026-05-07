@@ -1,13 +1,12 @@
 import path from "path";
-import { fileURLToPath } from "url";
 import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 import { PrismaClient, UserRole } from "../src/prisma-exports";
 import { normalizeCuil } from "@gcba/shared";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, "..", ".env") });
-dotenv.config({ path: path.join(__dirname, "..", "..", "..", ".env") });
+const apiRoot = process.cwd();
+dotenv.config({ path: path.join(apiRoot, ".env") });
+dotenv.config({ path: path.join(apiRoot, "..", "..", ".env") });
 
 const prisma = new PrismaClient();
 
