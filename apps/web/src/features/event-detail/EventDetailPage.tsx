@@ -245,10 +245,13 @@ export function EventDetailPage() {
     enabled: tab === "Acreditar" && normalizedDigits.length === 11
   });
   const displayRows = useMemo(() => {
+    const onlyDigits = debouncedSearch.replace(/\D/g, "");
     if (liveRows.length > 0) return liveRows;
-    if (exactCuilQuery.data) return [exactCuilQuery.data as unknown as LiveSearchRow];
+    if (onlyDigits.length === 11 && exactCuilQuery.data) {
+      return [exactCuilQuery.data as unknown as LiveSearchRow];
+    }
     return [];
-  }, [liveRows, exactCuilQuery.data]);
+  }, [liveRows, exactCuilQuery.data, debouncedSearch]);
   const accreditMutation = useMutation({
     mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
     onSuccess: () => {

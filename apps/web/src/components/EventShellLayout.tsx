@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "../features/auth/auth-context";
 import { Icon } from "./Icon";
 
@@ -25,6 +25,11 @@ export function EventShellLayout() {
 
   const backHref = user?.role === "SUPERADMIN" ? "/admin/eventos" : "/eventos";
   const backLabel = user?.role === "SUPERADMIN" ? "Panel administración" : "Mis eventos";
+  const isInformador = user?.role === "INFORMADOR";
+
+  if (isInformador && eventId && !isInformeRoute) {
+    return <Navigate to={`/events/${eventId}/informe`} replace />;
+  }
 
   return (
     <div className="app-shell">
@@ -40,23 +45,32 @@ export function EventShellLayout() {
         </div>
 
         <nav className="sidebar-nav">
-          <Link
-            to={eventPath("terminal")}
-            className={linkClass(!isInformeRoute && tab === "terminal")}
-          >
-            <Icon name="qr_code_scanner" filled={!isInformeRoute && tab === "terminal"} />
-            Terminal
-          </Link>
+          {!isInformador ? (
+            <>
+              <Link
+                to={eventPath("terminal")}
+                className={linkClass(!isInformeRoute && tab === "terminal")}
+              >
+                <Icon name="qr_code_scanner" filled={!isInformeRoute && tab === "terminal"} />
+                Terminal
+              </Link>
 
-          <Link to={eventPath("importar")} className={linkClass(!isInformeRoute && tab === "importar")}>
-            <Icon name="cloud_upload" filled={!isInformeRoute && tab === "importar"} />
-            Importador
-          </Link>
+              <Link to={eventPath("importar")} className={linkClass(!isInformeRoute && tab === "importar")}>
+                <Icon name="cloud_upload" filled={!isInformeRoute && tab === "importar"} />
+                Importador
+              </Link>
 
-          <Link to={eventPath("metricas")} className={linkClass(!isInformeRoute && tab === "metricas")}>
-            <Icon name="analytics" filled={!isInformeRoute && tab === "metricas"} />
-            Métricas
-          </Link>
+              <Link to={eventPath("metricas")} className={linkClass(!isInformeRoute && tab === "metricas")}>
+                <Icon name="analytics" filled={!isInformeRoute && tab === "metricas"} />
+                Métricas
+              </Link>
+            </>
+          ) : (
+            <Link to={`/events/${eventId}/informe`} className={linkClass(isInformeRoute)}>
+              <Icon name="description" filled={isInformeRoute} />
+              Informe
+            </Link>
+          )}
         </nav>
 
         <div className="sidebar-footer">

@@ -2,10 +2,12 @@ import { Router } from "express";
 import { subDays } from "date-fns";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
+import { rejectInformadorExceptReportRead } from "../../middlewares/informador-scope";
 import { ensureEventAccess } from "../events/event-access";
 
 const router = Router();
 router.use(requireAuth);
+router.use(rejectInformadorExceptReportRead);
 
 function buildTimelineBuckets(dates: Array<Date | null>): Array<{ bucket: string; count: number }> {
   const map = new Map<string, number>();

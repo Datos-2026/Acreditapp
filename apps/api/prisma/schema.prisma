@@ -14,6 +14,7 @@ enum UserRole {
   ADMIN_EVENTO
   ACREDITADOR
   LECTURA
+  INFORMADOR
 }
 
 enum EventStatus {

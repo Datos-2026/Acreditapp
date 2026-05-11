@@ -2,6 +2,7 @@ import type { EventCardDto } from "@gcba/shared";
 import { Link } from "react-router-dom";
 import { formatDateTimeAr } from "@gcba/shared";
 import { Icon } from "./Icon";
+import { useAuth } from "../features/auth/auth-context";
 
 type Props = {
   event: EventCardDto;
@@ -22,6 +23,10 @@ const statusLabel: Record<EventCardDto["status"], string> = {
 };
 
 export function EventCard({ event }: Props) {
+  const { user } = useAuth();
+  const eventHref =
+    user?.role === "INFORMADOR" ? `/events/${event.id}/informe` : `/events/${event.id}?tab=terminal`;
+
   return (
     <article className="card event-card">
       <div className="event-card__top">
@@ -44,9 +49,9 @@ export function EventCard({ event }: Props) {
         <strong>En base:</strong> {event.totalPeople} &nbsp;|&nbsp; <strong>Acreditados:</strong>{" "}
         {event.accreditedPeople}
       </p>
-      <Link to={`/events/${event.id}?tab=terminal`} className="btn btn-primary event-card__action">
+      <Link to={eventHref} className="btn btn-primary event-card__action">
         <Icon name="arrow_forward" />
-        Ingresar al evento
+        {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}
       </Link>
     </article>
   );

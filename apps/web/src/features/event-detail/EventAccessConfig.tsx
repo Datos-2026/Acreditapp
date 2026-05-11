@@ -8,10 +8,11 @@ const ROLE_LABEL: Record<string, string> = {
   SUPERADMIN: "Superadmin",
   ADMIN_EVENTO: "Admin de evento",
   ACREDITADOR: "Acreditador",
-  LECTURA: "Solo lectura"
+  LECTURA: "Solo lectura",
+  INFORMADOR: "Informador (solo informes)"
 };
 
-const ROLES_FOR_NEW_USER: AppRole[] = ["ACREDITADOR", "ADMIN_EVENTO", "LECTURA"];
+const ROLES_FOR_NEW_USER: AppRole[] = ["ACREDITADOR", "ADMIN_EVENTO", "LECTURA", "INFORMADOR"];
 
 type EventUserRow = {
   userId: string;

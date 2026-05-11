@@ -19,14 +19,15 @@ export const cuilSchema = z
   .refine((value) => isValidCuil(value), "CUIL inválido");
 
 export const manualPersonSchema = z.object({
-  cuilRaw: z.string().min(1),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  dni: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable(),
+  cuilRaw: cuilSchema,
+  firstName: z.string().min(1, "Nombre requerido"),
+  lastName: z.string().min(1, "Apellido requerido"),
+  email: z
+    .union([z.string().email(), z.literal("")])
+    .optional()
+    .nullable()
+    .transform((v) => (v === "" || v == null ? null : v)),
   phone: z.string().optional().nullable(),
-  company: z.string().optional().nullable(),
-  position: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   accreditationNotes: z.string().optional().nullable()
 });

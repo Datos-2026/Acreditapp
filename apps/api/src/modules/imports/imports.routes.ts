@@ -6,6 +6,7 @@ import { normalizeCuil } from "@gcba/shared";
 import { Prisma } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
+import { rejectInformadorExceptReportRead } from "../../middlewares/informador-scope";
 import { requireRoles } from "../../middlewares/rbac";
 import { ensureEventAccess } from "../events/event-access";
 import { createAuditLog } from "../../lib/audit";
@@ -16,18 +17,17 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024 }
 });
 
+/** Solo columnas operativas de la planilla BASE (el resto queda fuera del mapeo). */
 const canonicalFields = [
   "cuil",
   "cuit",
   "nombre",
   "apellido",
   "nombreCompleto",
-  "dni",
   "email",
   "telefono",
   "empresa",
-  "cargo",
-  "observaciones"
+  "cargo"
 ] as const;
 const REQUIRED_SHEET_NAME = "BASE";
 
@@ -52,37 +52,42 @@ function autoDetectMapping(headers: string[]) {
   const map: Record<string, string> = {};
   headers.forEach((header) => {
     const normalized = normalizeHeader(header);
-    if (normalized.includes("cuil") || normalized.includes("cuit")) map[header] = "cuil";
-    else if (normalized === "ayn" || normalized.includes("apellido y nombre")) map[header] = "nombreCompleto";
-    else if (normalized === "nombre/s" || normalized === "nombres" || normalized === "nombre") map[header] = "nombre";
-    else if (normalized === "apellido/s" || normalized === "apellidos" || normalized === "apellido")
-      map[header] = "apellido";
-    else if (normalized.includes("dni")) map[header] = "dni";
-    else if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email")
+
+    if (normalized.includes("cuit") || normalized.includes("cuil")) {
+      map[header] = "cuil";
+      return;
+    }
+    if (normalized === "ayn" || normalized.includes("apellido y nombre")) {
+      map[header] = "nombreCompleto";
+      return;
+    }
+    if (
+      normalized.includes("de que area formas parte") ||
+      normalized.includes("de que area") ||
+      (normalized.includes("area") && normalized.includes("parte"))
+    ) {
+      map[header] = "empresa";
+      return;
+    }
+    if (normalized.includes("reconocidos")) {
+      map[header] = "cargo";
+      return;
+    }
+    if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email") {
       map[header] = "email";
-    else if (
-      normalized.includes("telefono celular") ||
-      normalized.includes("numero de telefono") ||
-      normalized.includes("telefono") ||
-      normalized.includes("tel")
-    )
+      return;
+    }
+    if (normalized.includes("numero de telefono") || normalized.includes("numero telefono")) {
       map[header] = "telefono";
-    else if (/^rol([ _-]?\d+)?$/i.test(normalized)) map[header] = "cargo";
-    else if (normalized.includes("area")) map[header] = "cargo";
-    else if (normalized.includes("empresa")) map[header] = "empresa";
-    else if (normalized.includes("cargo")) map[header] = "cargo";
-    else if (
-      normalized.includes("obs") ||
-      normalized.includes("reconocidos") ||
-      normalized.includes("en cual de las siguientes fechas vas a participar")
-    )
-      map[header] = "observaciones";
+      return;
+    }
   });
   return map;
 }
 
 const router = Router();
 router.use(requireAuth);
+router.use(rejectInformadorExceptReportRead);
 
 router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), upload.single("file"), async (req, res, next) => {
   try {
@@ -234,22 +239,19 @@ router.post("/:id/imports/confirm", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
           cuilRaw: String(row.mapped.cuil),
           firstName: String(row.mapped.nombre),
           lastName: String(row.mapped.apellido),
-          dni: row.mapped.dni ? String(row.mapped.dni) : null,
           email: row.mapped.email ? String(row.mapped.email) : null,
           phone: row.mapped.telefono ? String(row.mapped.telefono) : null,
           company: row.mapped.empresa ? String(row.mapped.empresa) : null,
           position: row.mapped.cargo ? String(row.mapped.cargo) : null,
-          notes: row.mapped.observaciones ? String(row.mapped.observaciones) : null
+          notes: null
         },
         update: {
           firstName: String(row.mapped.nombre),
           lastName: String(row.mapped.apellido),
-          dni: row.mapped.dni ? String(row.mapped.dni) : undefined,
           email: row.mapped.email ? String(row.mapped.email) : undefined,
           phone: row.mapped.telefono ? String(row.mapped.telefono) : undefined,
           company: row.mapped.empresa ? String(row.mapped.empresa) : undefined,
-          position: row.mapped.cargo ? String(row.mapped.cargo) : undefined,
-          notes: row.mapped.observaciones ? String(row.mapped.observaciones) : undefined
+          position: row.mapped.cargo ? String(row.mapped.cargo) : undefined
         }
       });
 
@@ -262,11 +264,11 @@ router.post("/:id/imports/confirm", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
           personId: person.id,
           source: "imported",
           importBatchId: batch.id,
-          extraData: row.extra as Prisma.InputJsonValue
+          extraData: Prisma.JsonNull
         },
         update: {
           importBatchId: batch.id,
-          extraData: row.extra as Prisma.InputJsonValue
+          extraData: Prisma.JsonNull
         }
       });
       importedRows += 1;

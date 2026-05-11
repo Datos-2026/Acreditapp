@@ -11,7 +11,8 @@ const ROLE_LABEL: Record<string, string> = {
   SUPERADMIN: "Superadmin",
   ADMIN_EVENTO: "Admin de evento",
   ACREDITADOR: "Acreditador",
-  LECTURA: "Solo lectura"
+  LECTURA: "Solo lectura",
+  INFORMADOR: "Informador (solo informes)"
 };
 
 type UserRow = {

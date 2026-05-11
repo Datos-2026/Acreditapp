@@ -43,6 +43,12 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
     normalized.cuit = normalized.cuil;
   }
 
+  const idDigits = String(normalized.cuil ?? normalized.cuit ?? "").replace(/\D/g, "");
+  if (idDigits) {
+    normalized.cuil = idDigits;
+    normalized.cuit = idDigits;
+  }
+
   return normalized;
 }
 

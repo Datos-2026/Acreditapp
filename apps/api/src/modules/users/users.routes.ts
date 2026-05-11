@@ -124,7 +124,12 @@ router.patch("/:id", requireRoles("SUPERADMIN"), validateBody(patchUserSchema), 
 });
 
 /** Acreditadores, admins de evento y lectura; no otras cuentas superadmin. */
-const DELETABLE_ROLES: UserRole[] = [UserRole.ACREDITADOR, UserRole.ADMIN_EVENTO, UserRole.LECTURA];
+const DELETABLE_ROLES: UserRole[] = [
+  UserRole.ACREDITADOR,
+  UserRole.ADMIN_EVENTO,
+  UserRole.LECTURA,
+  UserRole.INFORMADOR
+];
 
 router.delete("/:id", requireRoles("SUPERADMIN"), async (req, res, next) => {
   try {

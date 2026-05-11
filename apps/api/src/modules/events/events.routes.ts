@@ -6,6 +6,7 @@ import { normalizeCuil, manualPersonSchema } from "@gcba/shared";
 import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
+import { rejectInformadorExceptReportRead } from "../../middlewares/informador-scope";
 import { requireRoles } from "../../middlewares/rbac";
 import { validateBody } from "../../middlewares/validate";
 import { createAuditLog } from "../../lib/audit";
@@ -17,6 +18,7 @@ import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 
 const router = Router();
 router.use(requireAuth);
+router.use(rejectInformadorExceptReportRead);
 
 const eventSchema = z.object({
   name: z.string().min(3),
@@ -35,7 +37,7 @@ const createEventStaffUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8, "Contraseña mínima de 8 caracteres"),
-  role: z.enum([UserRole.ADMIN_EVENTO, UserRole.ACREDITADOR, UserRole.LECTURA])
+  role: z.enum([UserRole.ADMIN_EVENTO, UserRole.ACREDITADOR, UserRole.LECTURA, UserRole.INFORMADOR])
 });
 
 router.get("/", async (req, res, next) => {
@@ -502,11 +504,8 @@ router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "AC
       update: {
         firstName: req.body.firstName,
         lastName: req.body.lastName,
-        dni: req.body.dni,
         email: req.body.email,
         phone: req.body.phone,
-        company: req.body.company,
-        position: req.body.position,
         notes: req.body.notes
       },
       create: {
@@ -514,11 +513,8 @@ router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "AC
         cuilRaw: req.body.cuilRaw,
         firstName: req.body.firstName,
         lastName: req.body.lastName,
-        dni: req.body.dni,
         email: req.body.email,
         phone: req.body.phone,
-        company: req.body.company,
-        position: req.body.position,
         notes: req.body.notes
       }
     });

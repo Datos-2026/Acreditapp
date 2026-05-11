@@ -34,6 +34,8 @@ export function EventReportPage() {
   const { id = "" } = useParams();
   const { user } = useAuth();
   const eventsListHref = user?.role === "SUPERADMIN" ? "/admin/eventos" : "/eventos";
+  const backFromInformeHref = user?.role === "INFORMADOR" ? eventsListHref : `/events/${id}?tab=metricas`;
+  const canUseAiTools = user?.role !== "INFORMADOR";
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -78,7 +80,7 @@ export function EventReportPage() {
     return (
       <div className="event-report-screen">
         <p className="message-error">No se pudo cargar el informe o no tenés acceso a este evento.</p>
-        <Link className="btn btn-secondary" to={id ? `/events/${id}?tab=terminal` : eventsListHref}>
+        <Link className="btn btn-secondary" to={id ? backFromInformeHref : eventsListHref}>
           Volver
         </Link>
       </div>
@@ -127,9 +129,9 @@ export function EventReportPage() {
   return (
     <div className="event-report-root event-report-screen">
       <div className="event-report-toolbar no-print">
-        <Link className="btn btn-ghost" to={`/events/${id}?tab=metricas`}>
+        <Link className="btn btn-ghost" to={backFromInformeHref}>
           <Icon name="arrow_back" />
-          Volver al evento
+          {user?.role === "INFORMADOR" ? "Volver a eventos" : "Volver al evento"}
         </Link>
         <div className="event-report-toolbar__actions">
           {d.aiAnalysisUpdatedAt ? (
@@ -142,13 +144,13 @@ export function EventReportPage() {
               {aiMutation.variables ? "Regenerando análisis…" : "Generando análisis…"}
             </span>
           ) : null}
-          {showGenerateCta ? (
+          {canUseAiTools && showGenerateCta ? (
             <button type="button" className="btn btn-primary" onClick={() => void aiMutation.mutate(false)}>
               <Icon name="smart_toy" />
               Generar análisis IA
             </button>
           ) : null}
-          {hasStoredAnalysis || analysis ? (
+          {canUseAiTools && (hasStoredAnalysis || analysis) ? (
             <button
               type="button"
               className="btn btn-secondary"

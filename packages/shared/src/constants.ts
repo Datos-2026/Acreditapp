@@ -4,7 +4,8 @@ export const ROLE_OPTIONS = [
   "SUPERADMIN",
   "ADMIN_EVENTO",
   "ACREDITADOR",
-  "LECTURA"
+  "LECTURA",
+  "INFORMADOR"
 ] as const;
 
 export type AppRole = (typeof ROLE_OPTIONS)[number];

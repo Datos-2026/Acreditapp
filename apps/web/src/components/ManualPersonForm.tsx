@@ -30,16 +30,16 @@ export function ManualPersonForm({ onSubmit, initialCuilRaw = "", submitLabel = 
       <input className="input input--boxed" placeholder="CUIL" {...register("cuilRaw")} />
       <input className="input input--boxed" placeholder="Nombre" {...register("firstName")} />
       <input className="input input--boxed" placeholder="Apellido" {...register("lastName")} />
-      <input className="input input--boxed" placeholder="DNI" {...register("dni")} />
-      <input className="input input--boxed" placeholder="Email" {...register("email")} />
-      <input className="input input--boxed" placeholder="Teléfono" {...register("phone")} />
-      <input className="input input--boxed" placeholder="Empresa" {...register("company")} />
-      <input className="input input--boxed" placeholder="Cargo" {...register("position")} />
-      <textarea className="input" placeholder="Observaciones" {...register("notes")} />
+      <input className="input input--boxed" placeholder="Email (opcional)" {...register("email")} />
+      <input className="input input--boxed" placeholder="Teléfono (opcional)" {...register("phone")} />
+      <textarea className="input" placeholder="Observaciones (opcional)" {...register("notes")} />
       <button className="btn btn-primary" type="submit">
         {submitLabel}
       </button>
       {formState.errors.cuilRaw ? <p className="message-error">{formState.errors.cuilRaw.message}</p> : null}
+      {formState.errors.firstName ? <p className="message-error">{formState.errors.firstName.message}</p> : null}
+      {formState.errors.lastName ? <p className="message-error">{formState.errors.lastName.message}</p> : null}
+      {formState.errors.email ? <p className="message-error">{formState.errors.email.message}</p> : null}
     </form>
   );
 }
