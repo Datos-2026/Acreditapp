@@ -42,6 +42,7 @@ const confirmSchema = z.object({
 function autoDetectMapping(headers: string[]) {
   const normalizeHeader = (header: string) =>
     header
+      .replace(/^\uFEFF/g, "")
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -59,6 +60,14 @@ function autoDetectMapping(headers: string[]) {
     }
     if (normalized === "ayn" || normalized.includes("apellido y nombre")) {
       map[header] = "nombreCompleto";
+      return;
+    }
+    if (normalized === "apellido/s" || normalized === "apellidos" || normalized === "apellido") {
+      map[header] = "apellido";
+      return;
+    }
+    if (normalized === "nombre/s" || normalized === "nombres" || normalized === "nombre") {
+      map[header] = "nombre";
       return;
     }
     if (

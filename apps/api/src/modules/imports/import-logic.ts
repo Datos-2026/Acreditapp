@@ -49,6 +49,13 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
     normalized.cuit = idDigits;
   }
 
+  if (normalized.email != null && normalized.email !== "") {
+    normalized.email = String(normalized.email).trim();
+  }
+  if (normalized.telefono != null && normalized.telefono !== "") {
+    normalized.telefono = String(normalized.telefono).trim();
+  }
+
   return normalized;
 }
 
