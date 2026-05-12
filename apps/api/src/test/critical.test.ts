@@ -22,10 +22,12 @@ describe("backend critical", () => {
     expect(() => ensureNotAlreadyAccredited("accredited")).toThrowError(AppError);
   });
 
-  it("valida preview de importación", () => {
+  it("valida preview de importación: solo CUIL obligatorio", () => {
     const valid = validateImportRow({ cuil: "20-12345678-3", nombre: "Juan", apellido: "Perez" });
+    const validSinNombre = validateImportRow({ cuil: "20-12345678-3", nombre: "", apellido: "" });
     const invalid = validateImportRow({ cuil: "20-1", nombre: "", apellido: "" });
     expect(valid).toHaveLength(0);
+    expect(validSinNombre).toHaveLength(0);
     expect(invalid.length).toBeGreaterThan(0);
   });
 });

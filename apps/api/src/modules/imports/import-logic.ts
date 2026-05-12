@@ -1,5 +1,53 @@
 import { normalizeCuil } from "@gcba/shared";
 
+/** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
+export function normalizeImportSheetHeader(header: string): string {
+  return header
+    .replace(/^\uFEFF/g, "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/["'¿?«»]/g, "")
+    .replace(/[／∕⁄﹨⧸]/g, "/")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Une valores al objeto canónico por fila: no pisa nombre/apellido/CUIL con celdas vacías;
+ * concatena varias columnas en `empresa`.
+ */
+export function applyImportMappedValue(canonical: Record<string, unknown>, target: string, raw: unknown): void {
+  const s = raw == null ? "" : String(raw).trim();
+  const noEmptyOverwrite = new Set([
+    "nombre",
+    "apellido",
+    "cuil",
+    "cuit",
+    "email",
+    "telefono",
+    "cargo",
+    "nombreCompleto",
+    "notes"
+  ]);
+  if (noEmptyOverwrite.has(target) && !s) {
+    return;
+  }
+  if (target === "empresa") {
+    if (!s) return;
+    const prev = canonical.empresa;
+    if (prev == null || String(prev).trim() === "") {
+      canonical.empresa = s;
+    } else if (!String(prev).includes(s)) {
+      canonical.empresa = `${String(prev).trim()} · ${s}`;
+    }
+    return;
+  }
+  if (!s) return;
+  canonical[target] = s;
+}
+
 function parseAyn(value: string): { nombre?: string; apellido?: string } {
   const clean = value.trim();
   if (!clean) return {};
@@ -55,6 +103,9 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
   if (normalized.telefono != null && normalized.telefono !== "") {
     normalized.telefono = String(normalized.telefono).trim();
   }
+  if (normalized.notes != null && normalized.notes !== "") {
+    normalized.notes = String(normalized.notes).trim();
+  }
 
   return normalized;
 }
@@ -63,8 +114,6 @@ export function validateImportRow(canonical: Record<string, unknown>): string[] 
   const normalized = normalizeImportCanonical(canonical);
   const cuil = normalizeCuil(String(normalized.cuil ?? ""));
   const errors: string[] = [];
-  if (!cuil || cuil.length !== 11) errors.push("CUIL inválido");
-  if (!String(normalized.nombre ?? "").trim()) errors.push("Nombre requerido");
-  if (!String(normalized.apellido ?? "").trim()) errors.push("Apellido requerido");
+  if (!cuil || cuil.length !== 11) errors.push("CUIL inválido o faltante");
   return errors;
 }

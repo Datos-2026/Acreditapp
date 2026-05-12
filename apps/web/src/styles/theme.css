@@ -592,6 +592,13 @@ a.tab-btn--informe {
   background: rgba(238, 238, 238, 0.5);
 }
 
+.import-preview-table .import-preview-table__cell-wrap {
+  max-width: 16rem;
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+}
+
 /* —— Badges —— */
 .badge-row {
   display: flex;

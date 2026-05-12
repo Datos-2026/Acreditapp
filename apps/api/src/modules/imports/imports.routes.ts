@@ -10,7 +10,12 @@ import { rejectInformadorExceptReportRead } from "../../middlewares/informador-s
 import { requireRoles } from "../../middlewares/rbac";
 import { ensureEventAccess } from "../events/event-access";
 import { createAuditLog } from "../../lib/audit";
-import { normalizeImportCanonical, validateImportRow } from "./import-logic";
+import {
+  applyImportMappedValue,
+  normalizeImportCanonical,
+  normalizeImportSheetHeader,
+  validateImportRow
+} from "./import-logic";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,7 +32,8 @@ const canonicalFields = [
   "email",
   "telefono",
   "empresa",
-  "cargo"
+  "cargo",
+  "notes"
 ] as const;
 const REQUIRED_SHEET_NAME = "BASE";
 
@@ -40,19 +46,9 @@ const confirmSchema = z.object({
 });
 
 function autoDetectMapping(headers: string[]) {
-  const normalizeHeader = (header: string) =>
-    header
-      .replace(/^\uFEFF/g, "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/["'¿?]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
   const map: Record<string, string> = {};
   headers.forEach((header) => {
-    const normalized = normalizeHeader(header);
+    const normalized = normalizeImportSheetHeader(header);
 
     if (normalized.includes("cuit") || normalized.includes("cuil")) {
       map[header] = "cuil";
@@ -62,24 +58,54 @@ function autoDetectMapping(headers: string[]) {
       map[header] = "nombreCompleto";
       return;
     }
-    if (normalized === "apellido/s" || normalized === "apellidos" || normalized === "apellido") {
+    if (
+      normalized === "apellido/s" ||
+      normalized === "apellidos" ||
+      normalized === "apellido" ||
+      /^apellido\/s$/.test(normalized)
+    ) {
       map[header] = "apellido";
       return;
     }
-    if (normalized === "nombre/s" || normalized === "nombres" || normalized === "nombre") {
+    if (
+      normalized === "nombre/s" ||
+      normalized === "nombres" ||
+      normalized === "nombre" ||
+      /^nombre\/s$/.test(normalized)
+    ) {
       map[header] = "nombre";
+      return;
+    }
+    if (normalized.includes("secretaria") && normalized.includes("formas parte")) {
+      map[header] = "empresa";
+      return;
+    }
+    if (normalized.includes("direccion") && normalized.includes("formas parte")) {
+      map[header] = "empresa";
       return;
     }
     if (
       normalized.includes("de que area formas parte") ||
       normalized.includes("de que area") ||
-      (normalized.includes("area") && normalized.includes("parte"))
+      (normalized.includes("area") && normalized.includes("parte") && !normalized.includes("secretaria"))
     ) {
       map[header] = "empresa";
       return;
     }
+    if (normalized === "rol" || /^rol\b/.test(normalized)) {
+      map[header] = "cargo";
+      return;
+    }
     if (normalized.includes("reconocidos")) {
       map[header] = "cargo";
+      return;
+    }
+    if (
+      normalized.includes("pregunta") ||
+      normalized.includes("tema que te interese") ||
+      normalized.includes("abordar durante el encuentro")
+    ) {
+      map[header] = "notes";
       return;
     }
     if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email") {
@@ -131,7 +157,7 @@ router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
       headers.forEach((header) => {
         const target = mapping[header];
         if (target && canonicalFields.includes(target as (typeof canonicalFields)[number])) {
-          canonical[target] = row[header];
+          applyImportMappedValue(canonical, target, row[header]);
         } else {
           extra[header] = row[header];
         }
@@ -198,9 +224,9 @@ router.post("/:id/imports/confirm", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
       Object.entries(row).forEach(([key, value]) => {
         const target = payload.mapping?.[key];
         if (target && canonicalFields.includes(target as (typeof canonicalFields)[number])) {
-          mapped[target] = value;
+          applyImportMappedValue(mapped, target, value);
         } else if (canonicalFields.includes(key as (typeof canonicalFields)[number])) {
-          mapped[key] = value;
+          applyImportMappedValue(mapped, key, value);
         } else {
           extra[key] = value;
         }
@@ -241,26 +267,29 @@ router.post("/:id/imports/confirm", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
 
     let importedRows = 0;
     for (const row of validRows) {
+      const firstName = String(row.mapped.nombre ?? "").trim();
+      const lastName = String(row.mapped.apellido ?? "").trim();
       const person = await prisma.person.upsert({
         where: { cuilNormalized: row.cuil },
         create: {
           cuilNormalized: row.cuil,
-          cuilRaw: String(row.mapped.cuil),
-          firstName: String(row.mapped.nombre),
-          lastName: String(row.mapped.apellido),
+          cuilRaw: String(row.mapped.cuil ?? row.cuil),
+          firstName,
+          lastName,
           email: row.mapped.email ? String(row.mapped.email) : null,
           phone: row.mapped.telefono ? String(row.mapped.telefono) : null,
           company: row.mapped.empresa ? String(row.mapped.empresa) : null,
           position: row.mapped.cargo ? String(row.mapped.cargo) : null,
-          notes: null
+          notes: row.mapped.notes ? String(row.mapped.notes) : null
         },
         update: {
-          firstName: String(row.mapped.nombre),
-          lastName: String(row.mapped.apellido),
+          firstName,
+          lastName,
           email: row.mapped.email ? String(row.mapped.email) : undefined,
           phone: row.mapped.telefono ? String(row.mapped.telefono) : undefined,
           company: row.mapped.empresa ? String(row.mapped.empresa) : undefined,
-          position: row.mapped.cargo ? String(row.mapped.cargo) : undefined
+          position: row.mapped.cargo ? String(row.mapped.cargo) : undefined,
+          notes: row.mapped.notes ? String(row.mapped.notes) : undefined
         }
       });
 

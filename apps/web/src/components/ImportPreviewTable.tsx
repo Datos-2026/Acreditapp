@@ -44,6 +44,9 @@ export function ImportPreviewTable({ rows }: Props) {
               <th>Apellido</th>
               <th>Correo</th>
               <th>Teléfono</th>
+              <th>Dependencia</th>
+              <th>Rol</th>
+              <th>Pregunta / nota</th>
               {extraColumns.map((column) => (
                 <th key={column}>{column}</th>
               ))}
@@ -59,6 +62,9 @@ export function ImportPreviewTable({ rows }: Props) {
                 <td>{String(row.canonical.apellido ?? "-")}</td>
                 <td>{String(row.canonical.email ?? "-")}</td>
                 <td>{String(row.canonical.telefono ?? "-")}</td>
+                <td>{String(row.canonical.empresa ?? "-")}</td>
+                <td>{String(row.canonical.cargo ?? "-")}</td>
+                <td className="import-preview-table__cell-wrap">{String(row.canonical.notes ?? "-")}</td>
                 {extraColumns.map((column) => (
                   <td key={column}>{String(row.extraData?.[column] ?? "-")}</td>
                 ))}
@@ -97,6 +103,18 @@ export function ImportPreviewTable({ rows }: Props) {
               <p>
                 <strong>Teléfono</strong>
                 <span>{String(row.canonical.telefono ?? "-")}</span>
+              </p>
+              <p>
+                <strong>Dependencia</strong>
+                <span>{String(row.canonical.empresa ?? "-")}</span>
+              </p>
+              <p>
+                <strong>Rol</strong>
+                <span>{String(row.canonical.cargo ?? "-")}</span>
+              </p>
+              <p>
+                <strong>Pregunta / nota</strong>
+                <span>{String(row.canonical.notes ?? "-")}</span>
               </p>
             </div>
             {extraColumns.length > 0 ? (
