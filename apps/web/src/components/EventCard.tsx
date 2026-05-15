@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EventCardDto } from "@gcba/shared";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +31,8 @@ export function EventCard({ event }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -39,6 +41,24 @@ export function EventCard({ event }: Props) {
   const editPath = isAdminPath ? `/admin/eventos/${event.id}/editar` : `/eventos/${event.id}/editar`;
   const eventHref =
     user?.role === "INFORMADOR" ? `/events/${event.id}/informe` : `/events/${event.id}?tab=terminal`;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -60,6 +80,45 @@ export function EventCard({ event }: Props) {
     <article className="card event-card">
       <div className="event-card__top">
         <span className={statusClass[event.status]}>{statusLabel[event.status]}</span>
+        {canManage ? (
+          <div className="event-card__menu-wrap" ref={menuRef}>
+            <button
+              type="button"
+              className="icon-btn event-card__menu"
+              aria-label="Opciones del evento"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <Icon name="more_vert" />
+            </button>
+            {menuOpen ? (
+              <div className="event-card__dropdown" role="menu">
+                <Link
+                  to={editPath}
+                  className="event-card__dropdown-item"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <Icon name="edit" />
+                  Editar evento
+                </Link>
+                <button
+                  type="button"
+                  className="event-card__dropdown-item event-card__dropdown-item--danger"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowDeleteConfirm(true);
+                  }}
+                >
+                  <Icon name="delete" />
+                  Eliminar evento
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <h3 className="event-card__title">{event.name}</h3>
       <p className="event-card__description">{event.description ?? "Sin descripción"}</p>
@@ -71,29 +130,10 @@ export function EventCard({ event }: Props) {
         <strong>En base:</strong> {event.totalPeople} &nbsp;|&nbsp; <strong>Acreditados:</strong>{" "}
         {event.accreditedPeople}
       </p>
-      <div className="event-card__actions">
-        <Link to={eventHref} className="btn btn-primary event-card__action">
-          <Icon name="arrow_forward" />
-          {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}
-        </Link>
-        {canManage ? (
-          <>
-            <Link to={editPath} className="btn btn-secondary">
-              <Icon name="edit" />
-              Editar
-            </Link>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ color: "var(--error)" }}
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              <Icon name="delete" />
-              Eliminar
-            </button>
-          </>
-        ) : null}
-      </div>
+      <Link to={eventHref} className="btn btn-primary event-card__action">
+        <Icon name="arrow_forward" />
+        {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}
+      </Link>
       {deleteError ? <p className="message-error" style={{ marginTop: "0.5rem" }}>{deleteError}</p> : null}
       <ConfirmDialog
         open={showDeleteConfirm}
