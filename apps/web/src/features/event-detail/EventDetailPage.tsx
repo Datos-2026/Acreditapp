@@ -24,7 +24,7 @@ import { ActivityTimeline } from "../../components/ActivityTimeline";
 import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { downloadAccreditedCsv } from "../../lib/downloadExport";
+import { downloadAccreditedXlsx } from "../../lib/downloadExport";
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
@@ -616,28 +616,28 @@ export function EventDetailPage() {
                 className="btn btn-secondary"
                 onClick={async () => {
                   try {
-                    await downloadAccreditedCsv(id, "all");
+                    await downloadAccreditedXlsx(id, "all");
                   } catch {
                     alert("No se pudo descargar. Reintentá o revisá tu sesión.");
                   }
                 }}
               >
                 <Icon name="download" />
-                CSV todos
+                XLSX todos
               </button>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={async () => {
                   try {
-                    await downloadAccreditedCsv(id, "imported");
+                    await downloadAccreditedXlsx(id, "imported");
                   } catch {
                     alert("No se pudo descargar. Reintentá o revisá tu sesión.");
                   }
                 }}
               >
                 <Icon name="download" />
-                CSV desde base
+                XLSX desde base
               </button>
             </div>
           </div>
@@ -697,14 +697,14 @@ export function EventDetailPage() {
                 className="btn btn-primary"
                 onClick={async () => {
                   try {
-                    await downloadAccreditedCsv(id, "manual");
+                    await downloadAccreditedXlsx(id, "manual");
                   } catch {
                     alert("No se pudo descargar. Reintentá o revisá tu sesión.");
                   }
                 }}
               >
                 <Icon name="download" />
-                CSV fuera de base
+                XLSX fuera de base
               </button>
             </div>
           </div>

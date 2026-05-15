@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
+import * as XLSX from "xlsx";
 import type { EventReportAiAnalysis } from "@gcba/shared";
 import { normalizeCuil, manualPersonSchema } from "@gcba/shared";
 import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
@@ -110,13 +111,7 @@ router.post("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventS
   }
 });
 
-function csvCell(value: unknown): string {
-  const s = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-/** CSV de acreditados. ?manualOnly=true → solo manual (fuera de base). ?importedOnly=true → solo desde base importada. */
+/** XLSX de acreditados. ?manualOnly=true → solo manual (fuera de base). ?importedOnly=true → solo desde base importada. */
 router.get("/:id/export/accredited", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
@@ -162,10 +157,12 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       "Notas_acreditacion"
     ];
 
-    const lines = rows.map((r) => {
+    const dataRows = rows.map((r) => {
       const origen = r.source === "manual" ? "manual" : "importado";
       const fueraDeBase = r.source === "manual" ? "si" : "no";
-      const accAt = r.accreditedAt ? new Date(r.accreditedAt).toISOString() : "";
+      const accAt = r.accreditedAt
+        ? new Date(r.accreditedAt).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })
+        : "";
       const by = r.accreditedByUser?.name ?? r.accreditedByUser?.email ?? "";
       return [
         r.person.cuilNormalized,
@@ -181,28 +178,34 @@ router.get("/:id/export/accredited", async (req, res, next) => {
         accAt,
         by,
         r.accreditationNotes ?? ""
-      ]
-        .map(csvCell)
-        .join(",");
+      ];
     });
 
     const filename = manualOnly
-      ? "acreditados-fuera-de-base.csv"
+      ? "acreditados-fuera-de-base.xlsx"
       : importedOnly
-        ? "acreditados-desde-base.csv"
-        : "acreditados-todos.csv";
+        ? "acreditados-desde-base.xlsx"
+        : "acreditados-todos.xlsx";
+
+    const sheet = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Acreditados");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
     await createAuditLog({
       req,
       action: "event.export.accredited",
       entityType: "event",
       entityId: req.params.id,
-      metadata: { manualOnly, importedOnly, rows: rows.length }
+      metadata: { manualOnly, importedOnly, rows: rows.length, format: "xlsx" }
     });
 
-    const body = "\uFEFF" + header.map(csvCell).join(",") + "\n" + lines.join("\n");
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.send(body);
+    res.send(buffer);
   } catch (error) {
     next(error);
   }

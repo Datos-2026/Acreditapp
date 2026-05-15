@@ -3,7 +3,15 @@ import { api } from "./api";
 /** `all` = todos los acreditados; `manual` = fuera de base; `imported` = solo inscriptos desde base importada. */
 export type AccreditedExportScope = "all" | "manual" | "imported";
 
-export async function downloadAccreditedCsv(eventId: string, scope: AccreditedExportScope): Promise<void> {
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function filenameForScope(scope: AccreditedExportScope): string {
+  if (scope === "manual") return "acreditados-fuera-de-base.xlsx";
+  if (scope === "imported") return "acreditados-desde-base.xlsx";
+  return "acreditados-todos.xlsx";
+}
+
+export async function downloadAccreditedXlsx(eventId: string, scope: AccreditedExportScope): Promise<void> {
   const params =
     scope === "manual"
       ? { manualOnly: true }
@@ -14,16 +22,14 @@ export async function downloadAccreditedCsv(eventId: string, scope: AccreditedEx
     responseType: "blob",
     params
   });
-  const blob = new Blob([res.data as BlobPart], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download =
-    scope === "manual"
-      ? "acreditados-fuera-de-base.csv"
-      : scope === "imported"
-        ? "acreditados-desde-base.csv"
-        : "acreditados-todos.csv";
+  a.download = filenameForScope(scope);
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** @deprecated Usar downloadAccreditedXlsx */
+export const downloadAccreditedCsv = downloadAccreditedXlsx;
