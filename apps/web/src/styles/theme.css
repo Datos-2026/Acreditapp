@@ -1610,6 +1610,13 @@ a.tab-btn--informe {
   color: var(--on-surface);
 }
 
+.event-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .event-card__action {
   width: 100%;
 }

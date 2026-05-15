@@ -8,6 +8,7 @@ import { LoginPage } from "../features/auth/LoginPage";
 import { EventsListPage } from "../features/events/EventsListPage";
 import { EventsCalendarPage } from "../features/events/EventsCalendarPage";
 import { CreateEventPage } from "../features/events/CreateEventPage";
+import { EditEventPage } from "../features/events/EditEventPage";
 import { EventDetailPage } from "../features/event-detail/EventDetailPage";
 import { EventReportPage } from "../features/event-report/EventReportPage";
 import { UsersAdminPage } from "../features/admin/UsersAdminPage";
@@ -26,6 +27,7 @@ export function AppRouter() {
           <Route path="eventos" element={<EventsListPage />} />
           <Route path="eventos/calendario" element={<EventsCalendarPage />} />
           <Route path="eventos/nuevo" element={<CreateEventPage />} />
+          <Route path="eventos/:id/editar" element={<EditEventPage />} />
         </Route>
 
         <Route path="/events/:id" element={<EventShellLayout />}>
@@ -37,6 +39,7 @@ export function AppRouter() {
           <Route path="/eventos" element={<EventsListPage />} />
           <Route path="/eventos/calendario" element={<EventsCalendarPage />} />
           <Route path="/eventos/nuevo" element={<CreateEventPage />} />
+          <Route path="/eventos/:id/editar" element={<EditEventPage />} />
         </Route>
       </Route>
       <Route path="*" element={<RoleBasedRedirect />} />

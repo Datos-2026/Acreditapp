@@ -40,6 +40,17 @@ const createEventStaffUserSchema = z.object({
   role: z.enum([UserRole.ADMIN_EVENTO, UserRole.ACREDITADOR, UserRole.LECTURA, UserRole.INFORMADOR])
 });
 
+function slugFromEventName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const where =
@@ -80,7 +91,7 @@ router.post("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventS
     const event = await prisma.event.create({
       data: {
         ...req.body,
-        slug: req.body.name.toLowerCase().replace(/\s+/g, "-").replace(/[^\w-]/g, "")
+        slug: slugFromEventName(req.body.name)
       }
     });
     await createAuditLog({
@@ -91,6 +102,10 @@ router.post("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventS
     });
     res.status(201).json(event);
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      next(new AppError("Ya existe un evento con ese nombre o identificador", 409));
+      return;
+    }
     next(error);
   }
 });
@@ -313,9 +328,13 @@ router.get("/:id", async (req, res, next) => {
 router.patch("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventSchema.partial()), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const data: Prisma.EventUpdateInput = { ...req.body };
+    if (typeof req.body.name === "string") {
+      data.slug = slugFromEventName(req.body.name);
+    }
     const event = await prisma.event.update({
       where: { id: req.params.id },
-      data: req.body
+      data
     });
     await createAuditLog({
       req,
@@ -325,6 +344,35 @@ router.patch("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(ev
       metadata: req.body
     });
     res.json(event);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      next(new AppError("Ya existe un evento con ese nombre o identificador", 409));
+      return;
+    }
+    next(error);
+  }
+});
+
+router.delete("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, name: true }
+    });
+    if (!event) {
+      res.status(404).json({ message: "Evento no encontrado" });
+      return;
+    }
+    await prisma.event.delete({ where: { id: req.params.id } });
+    await createAuditLog({
+      req,
+      action: "event.delete",
+      entityType: "event",
+      entityId: event.id,
+      metadata: { name: event.name }
+    });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

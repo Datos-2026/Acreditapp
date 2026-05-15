@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -119,6 +119,10 @@ export function EventDetailPage() {
   const [liveSearchInput, setLiveSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchedOnce, setSearchedOnce] = useState(false);
+  const [showDeleteEvent, setShowDeleteEvent] = useState(false);
+  const navigate = useNavigate();
+  const canManageEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
+  const editEventPath = `/eventos/${id}/editar`;
 
   useEffect(() => {
     if (!SLUG_TO_TAB[slug]) {
@@ -340,6 +344,17 @@ export function EventDetailPage() {
     return [...rows].reverse();
   }, [rankingQuery.data]);
 
+  const deleteEventMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/events/${id}`);
+    },
+    onSuccess: () => {
+      setShowDeleteEvent(false);
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+      navigate(user?.role === "SUPERADMIN" ? "/admin/eventos" : "/eventos");
+    }
+  });
+
   if (eventQuery.isLoading) return <div className="page-state">Cargando evento...</div>;
 
   return (
@@ -352,6 +367,23 @@ export function EventDetailPage() {
             </p>
             <h1 className="display-sm">{eventQuery.data?.name}</h1>
             <p className="lead">{eventQuery.data?.description ?? "Sin descripción"}</p>
+            {canManageEvent ? (
+              <div className="row gap event-detail-header__manage" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
+                <Link to={editEventPath} className="btn btn-secondary">
+                  <Icon name="edit" />
+                  Editar evento
+                </Link>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ color: "var(--error)" }}
+                  onClick={() => setShowDeleteEvent(true)}
+                >
+                  <Icon name="delete" />
+                  Eliminar evento
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="kpi-inline metrics">
             {fastKpis.map((item) => (
@@ -961,6 +993,14 @@ export function EventDetailPage() {
           <EventAccessConfig eventId={id} />
         </RoleGuard>
       ) : null}
+
+      <ConfirmDialog
+        open={showDeleteEvent}
+        title="Eliminar evento"
+        message={`¿Eliminar "${eventQuery.data?.name ?? "este evento"}"? Se borrarán personas del evento, importaciones e informes. No se puede deshacer.`}
+        onCancel={() => setShowDeleteEvent(false)}
+        onConfirm={() => deleteEventMutation.mutate()}
+      />
     </section>
   );
 }

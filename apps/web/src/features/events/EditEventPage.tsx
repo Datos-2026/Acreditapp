@@ -1,48 +1,92 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { useAuth } from "../auth/auth-context";
-import { useLastEvent } from "../../lib/lastEventContext";
 import { Icon } from "../../components/Icon";
-import { eventFormSchema, eventFormToPayload, type EventFormValues } from "./eventForm";
-export function CreateEventPage() {
+import { eventFormSchema, eventFormToPayload, toDatetimeLocalValue, type EventFormValues } from "./eventForm";
+
+type EventDto = {
+  id: string;
+  name: string;
+  description: string | null;
+  startAt: string;
+  endAt: string;
+  location: string | null;
+  status: EventFormValues["status"];
+};
+
+export function EditEventPage() {
   const { user } = useAuth();
+  const { id = "" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const backHref = location.pathname.includes("/admin/") ? "/admin/eventos" : "/eventos";
   const queryClient = useQueryClient();
-  const { setLastEventId } = useLastEvent();
-  const { register, handleSubmit, formState } = useForm<EventFormValues>({
-    resolver: zodResolver(eventFormSchema),
-    defaultValues: {
-      status: "draft",
-      description: ""
-    }
+  const isAdminPath = location.pathname.includes("/admin/");
+  const backHref = isAdminPath ? "/admin/eventos" : "/eventos";
+
+  const eventQuery = useQuery({
+    queryKey: ["event", id],
+    queryFn: async () => (await api.get<EventDto>(`/events/${id}`)).data,
+    enabled: Boolean(id)
   });
+
+  const { register, handleSubmit, formState, reset } = useForm<EventFormValues>({
+    resolver: zodResolver(eventFormSchema)
+  });
+
+  useEffect(() => {
+    if (!eventQuery.data) return;
+    const e = eventQuery.data;
+    reset({
+      name: e.name,
+      description: e.description ?? "",
+      startAt: toDatetimeLocalValue(e.startAt),
+      endAt: toDatetimeLocalValue(e.endAt),
+      location: e.location ?? "",
+      status: e.status
+    });
+  }, [eventQuery.data, reset]);
+
   const mutation = useMutation({
     mutationFn: async (values: EventFormValues) => {
-      const { data } = await api.post<{ id: string }>("/events", eventFormToPayload(values));
+      const { data } = await api.patch<EventDto>(`/events/${id}`, eventFormToPayload(values));
       return data;
     },
-    onSuccess: (data) => {
-      setLastEventId(data.id);
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["events"] });
-      navigate(`/events/${data.id}?tab=terminal`);
+      void queryClient.invalidateQueries({ queryKey: ["event", id] });
+      navigate(`/events/${id}?tab=terminal`);
     }
   });
+
   if (!user?.role || !["SUPERADMIN", "ADMIN_EVENTO"].includes(user.role)) {
     return <Navigate to="/eventos" replace />;
   }
+
+  if (eventQuery.isLoading) {
+    return <div className="page-state">Cargando evento…</div>;
+  }
+
+  if (eventQuery.isError || !eventQuery.data) {
+    return (
+      <section>
+        <p className="message-error">No se pudo cargar el evento.</p>
+        <Link to={backHref} className="btn btn-secondary">
+          Volver
+        </Link>
+      </section>
+    );
+  }
+
   return (
     <section className="create-event-page">
       <header className="page-header page-header--compact">
         <div className="page-header__copy">
-          <h1 className="display-sm">Nuevo evento</h1>
-          <p className="lead page-header__lead">
-            Definí fechas, estado y ubicación. Después podés operar el evento desde Terminal, Importador y Métricas.
-          </p>
+          <h1 className="display-sm">Editar evento</h1>
+          <p className="lead page-header__lead">Modificá los datos del evento. Los cambios aplican de inmediato.</p>
         </div>
       </header>
       <Link
@@ -95,13 +139,15 @@ export function CreateEventPage() {
           <div className="row gap create-event-card__actions">
             <button className="btn btn-primary" type="submit" disabled={mutation.isPending}>
               <Icon name="save" />
-              {mutation.isPending ? "Guardando…" : "Crear evento"}
+              {mutation.isPending ? "Guardando…" : "Guardar cambios"}
             </button>
-            <Link to="/" className="btn btn-secondary">
+            <Link to={backHref} className="btn btn-secondary">
               Cancelar
             </Link>
           </div>
-          {mutation.isError ? <p className="message-error">No se pudo crear el evento. Revisá los datos o el nombre duplicado.</p> : null}
+          {mutation.isError ? (
+            <p className="message-error">No se pudo guardar. Revisá los datos o si el nombre ya existe.</p>
+          ) : null}
         </form>
       </div>
     </section>
