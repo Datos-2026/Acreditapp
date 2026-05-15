@@ -44,7 +44,7 @@ export function ImportPreviewTable({ rows }: Props) {
               <th>Apellido</th>
               <th>Correo</th>
               <th>Teléfono</th>
-              <th>Dependencia</th>
+              <th>Ministerio</th>
               <th>Rol</th>
               <th>Pregunta / nota</th>
               {extraColumns.map((column) => (
@@ -105,7 +105,7 @@ export function ImportPreviewTable({ rows }: Props) {
                 <span>{String(row.canonical.telefono ?? "-")}</span>
               </p>
               <p>
-                <strong>Dependencia</strong>
+                <strong>Ministerio</strong>
                 <span>{String(row.canonical.empresa ?? "-")}</span>
               </p>
               <p>

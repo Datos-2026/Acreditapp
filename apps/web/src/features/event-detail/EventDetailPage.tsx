@@ -477,8 +477,8 @@ export function EventDetailPage() {
                     >
                       <p className="live-result-card__name">{`${row.person.lastName}, ${row.person.firstName}`}</p>
                       <p className="live-result-card__meta">{row.person.cuilNormalized}</p>
-                      <p className="live-result-card__meta">{row.person.company ?? "Sin organismo"}</p>
-                      <p className="live-result-card__meta">{row.person.position ?? "Sin cargo"}</p>
+                      <p className="live-result-card__meta">{row.person.company ?? "Sin ministerio"}</p>
+                      <p className="live-result-card__meta">{row.person.position ?? "Sin rol"}</p>
                       <span className={`status-pill status-pill--${row.status === "accredited" ? "active" : "draft"}`}>
                         {row.status === "accredited" ? "Acreditado" : "Pendiente"}
                       </span>
@@ -528,8 +528,8 @@ export function EventDetailPage() {
                 <div className="accred-detail__rows">
                   <p><strong>CUIL</strong> {selected.person.cuilNormalized}</p>
                   <p><strong>DNI</strong> {selected.person.dni ?? "—"}</p>
-                  <p><strong>Organismo</strong> {selected.person.company ?? "—"}</p>
-                  <p><strong>Cargo</strong> {selected.person.position ?? "—"}</p>
+                  <p><strong>Ministerio</strong> {selected.person.company ?? "—"}</p>
+                  <p><strong>Rol</strong> {selected.person.position ?? "—"}</p>
                   <p><strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}</p>
                 </div>
               </div>

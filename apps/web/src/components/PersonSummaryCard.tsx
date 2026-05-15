@@ -41,7 +41,7 @@ export function PersonSummaryCard({ eventPerson }: Props) {
           <div className="person-summary-card__grid">
             <div>
               <p className="label-md field-label">
-                Empresa / Institución
+                Ministerio
               </p>
               <p className="person-summary-card__value">
                 {eventPerson.person.company ?? "—"}
@@ -49,7 +49,7 @@ export function PersonSummaryCard({ eventPerson }: Props) {
             </div>
             <div>
               <p className="label-md field-label">
-                Cargo / Función
+                Rol
               </p>
               <p className="person-summary-card__value">
                 {eventPerson.person.position ?? "—"}
