@@ -485,21 +485,25 @@ router.get("/:id/people", async (req, res, next) => {
     const source = req.query.source as "imported" | "manual" | undefined;
     const accreditedByUserId = req.query.accreditedByUserId as string | undefined;
 
+    const qDigits = q ? normalizeCuil(q) : "";
+    const orFilters: Prisma.EventPersonWhereInput[] = [];
+    if (q) {
+      if (qDigits.length > 0) {
+        orFilters.push({ person: { cuilNormalized: { contains: qDigits } } });
+      }
+      orFilters.push(
+        { person: { firstName: { contains: q, mode: Prisma.QueryMode.insensitive } } },
+        { person: { lastName: { contains: q, mode: Prisma.QueryMode.insensitive } } },
+        { person: { dni: { contains: q, mode: Prisma.QueryMode.insensitive } } }
+      );
+    }
+
     const where = {
       eventId: req.params.id,
       ...(status ? { status } : {}),
       ...(source ? { source } : {}),
       ...(accreditedByUserId ? { accreditedByUserId } : {}),
-      ...(q
-        ? {
-            OR: [
-              { person: { cuilNormalized: { contains: normalizeCuil(q) } } },
-              { person: { firstName: { contains: q } } },
-              { person: { lastName: { contains: q } } },
-              { person: { dni: { contains: q } } }
-            ]
-          }
-        : {})
+      ...(orFilters.length > 0 ? { OR: orFilters } : {})
     };
 
     const [total, rows] = await Promise.all([
