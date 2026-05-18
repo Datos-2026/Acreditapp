@@ -1,7 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import { z } from "zod";
 import { normalizeCuil } from "@gcba/shared";
 import { Prisma } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
@@ -36,14 +35,165 @@ const canonicalFields = [
   "notes"
 ] as const;
 const REQUIRED_SHEET_NAME = "BASE";
+/** Máximo de filas mostradas en pantalla; la importación confirma el archivo completo. */
+const PREVIEW_ROW_LIMIT = 200;
 
-const confirmSchema = z.object({
-  eventId: z.string(),
-  originalFilename: z.string(),
-  sheetName: z.literal(REQUIRED_SHEET_NAME),
-  rows: z.array(z.record(z.string(), z.any())),
-  mapping: z.record(z.string(), z.string()).optional()
-});
+type ImportParsedRow = {
+  rowNumber: number;
+  canonical: Record<string, unknown>;
+  extraData: Record<string, unknown>;
+  errors: string[];
+};
+
+function parseWorkbookRows(buffer: Buffer) {
+  const workbook = XLSX.read(buffer);
+  const sheetName = workbook.SheetNames.includes(REQUIRED_SHEET_NAME)
+    ? REQUIRED_SHEET_NAME
+    : (workbook.SheetNames[0] ?? "");
+  if (!sheetName) {
+    throw new Error("El archivo no contiene hojas para importar.");
+  }
+  const sheet = workbook.Sheets[sheetName];
+  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+  const headers = jsonRows[0] ? Object.keys(jsonRows[0]) : [];
+  const mapping = autoDetectMapping(headers);
+  const cuilSet = new Set<string>();
+  let validRows = 0;
+  let invalidRows = 0;
+  let duplicateRows = 0;
+
+  const rows: ImportParsedRow[] = jsonRows.map((row, index) => {
+    const canonical: Record<string, unknown> = {};
+    const extra: Record<string, unknown> = {};
+    headers.forEach((header) => {
+      const target = mapping[header];
+      if (target && canonicalFields.includes(target as (typeof canonicalFields)[number])) {
+        applyImportMappedValue(canonical, target, row[header]);
+      } else {
+        extra[header] = row[header];
+      }
+    });
+    const normalizedCanonical = normalizeImportCanonical(canonical);
+    const cuil = normalizeCuil(String(normalizedCanonical.cuil ?? ""));
+    const rowErrors = validateImportRow(normalizedCanonical);
+    if (cuilSet.has(cuil)) {
+      duplicateRows += 1;
+      rowErrors.push("CUIL duplicado en archivo");
+    } else if (cuil) {
+      cuilSet.add(cuil);
+    }
+    if (rowErrors.length > 0) invalidRows += 1;
+    else validRows += 1;
+    return {
+      rowNumber: index + 2,
+      canonical: normalizedCanonical,
+      extraData: extra,
+      errors: rowErrors
+    };
+  });
+
+  return {
+    sheetName,
+    headers,
+    mapping,
+    rows,
+    summary: {
+      totalRows: jsonRows.length,
+      validRows,
+      invalidRows,
+      duplicateRows
+    }
+  };
+}
+
+async function importParsedRows(
+  eventId: string,
+  uploadedByUserId: string,
+  originalFilename: string,
+  parsed: ReturnType<typeof parseWorkbookRows>
+) {
+  const validRows = parsed.rows.filter((row) => row.errors.length === 0);
+  const invalidRows = parsed.rows.filter((row) => row.errors.length > 0);
+
+  const batch = await prisma.importBatch.create({
+    data: {
+      eventId,
+      uploadedByUserId,
+      originalFilename,
+      sheetName: parsed.sheetName,
+      totalRows: parsed.rows.length,
+      validRows: validRows.length,
+      invalidRows: invalidRows.length,
+      duplicateRows: parsed.summary.duplicateRows,
+      importedRows: 0
+    }
+  });
+
+  for (const row of invalidRows) {
+    await prisma.importBatchRowError.create({
+      data: {
+        importBatchId: batch.id,
+        rowNumber: row.rowNumber,
+        rawData: row.canonical as Prisma.InputJsonValue,
+        errorMessage: row.errors.join(", ")
+      }
+    });
+  }
+
+  let importedRows = 0;
+  for (const row of validRows) {
+    const mapped = row.canonical;
+    const cuil = normalizeCuil(String(mapped.cuil ?? ""));
+    const firstName = String(mapped.nombre ?? "").trim();
+    const lastName = String(mapped.apellido ?? "").trim();
+    const person = await prisma.person.upsert({
+      where: { cuilNormalized: cuil },
+      create: {
+        cuilNormalized: cuil,
+        cuilRaw: String(mapped.cuil ?? cuil),
+        firstName,
+        lastName,
+        email: mapped.email ? String(mapped.email) : null,
+        phone: mapped.telefono ? String(mapped.telefono) : null,
+        company: mapped.empresa ? String(mapped.empresa) : null,
+        position: mapped.cargo ? String(mapped.cargo) : null,
+        notes: mapped.notes ? String(mapped.notes) : null
+      },
+      update: {
+        firstName,
+        lastName,
+        email: mapped.email ? String(mapped.email) : undefined,
+        phone: mapped.telefono ? String(mapped.telefono) : undefined,
+        company: mapped.empresa ? String(mapped.empresa) : undefined,
+        position: mapped.cargo ? String(mapped.cargo) : undefined,
+        notes: mapped.notes ? String(mapped.notes) : undefined
+      }
+    });
+
+    await prisma.eventPerson.upsert({
+      where: {
+        eventId_personId: { eventId, personId: person.id }
+      },
+      create: {
+        eventId,
+        personId: person.id,
+        source: "imported",
+        importBatchId: batch.id,
+        extraData: Prisma.JsonNull
+      },
+      update: {
+        importBatchId: batch.id,
+        extraData: Prisma.JsonNull
+      }
+    });
+    importedRows += 1;
+  }
+
+  return prisma.importBatch.update({
+    where: { id: batch.id },
+    data: { importedRows }
+  });
+}
 
 function autoDetectMapping(headers: string[]) {
   const map: Record<string, string> = {};
@@ -132,56 +282,8 @@ router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
       return;
     }
 
-    const workbook = XLSX.read(req.file.buffer);
-    const sheetName = workbook.SheetNames.includes(REQUIRED_SHEET_NAME)
-      ? REQUIRED_SHEET_NAME
-      : (workbook.SheetNames[0] ?? "");
-    if (!sheetName) {
-      res.status(400).json({
-        message: "El archivo no contiene hojas para importar."
-      });
-      return;
-    }
-    const sheet = workbook.Sheets[sheetName];
-    const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
-    const headers = jsonRows[0] ? Object.keys(jsonRows[0]) : [];
-    const mapping = autoDetectMapping(headers);
-    const cuilSet = new Set<string>();
-    let validRows = 0;
-    let invalidRows = 0;
-    let duplicateRows = 0;
-
-    const previewRows = jsonRows.map((row, index) => {
-      const canonical: Record<string, unknown> = {};
-      const extra: Record<string, unknown> = {};
-      headers.forEach((header) => {
-        const target = mapping[header];
-        if (target && canonicalFields.includes(target as (typeof canonicalFields)[number])) {
-          applyImportMappedValue(canonical, target, row[header]);
-        } else {
-          extra[header] = row[header];
-        }
-      });
-      const normalizedCanonical = normalizeImportCanonical(canonical);
-      const cuil = normalizeCuil(String(normalizedCanonical.cuil ?? ""));
-      const rowErrors = validateImportRow(normalizedCanonical);
-      if (cuilSet.has(cuil)) {
-        duplicateRows += 1;
-        rowErrors.push("CUIL duplicado en archivo");
-      } else if (cuil) {
-        cuilSet.add(cuil);
-      }
-      if (rowErrors.length > 0) invalidRows += 1;
-      else validRows += 1;
-      return {
-        rowNumber: index + 2,
-        canonical: normalizedCanonical,
-        extraData: extra,
-        errors: rowErrors
-      };
-    });
-
-    const cuils = previewRows.map((row) => normalizeCuil(String(row.canonical.cuil ?? ""))).filter(Boolean);
+    const parsed = parseWorkbookRows(req.file.buffer);
+    const cuils = parsed.rows.map((row) => normalizeCuil(String(row.canonical.cuil ?? ""))).filter(Boolean);
     const existingInEvent = await prisma.eventPerson.findMany({
       where: {
         eventId: req.params.id,
@@ -193,144 +295,72 @@ router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
       where: { cuilNormalized: { in: cuils } }
     });
 
+    const previewShown = Math.min(PREVIEW_ROW_LIMIT, parsed.rows.length);
+
     res.json({
       originalFilename: req.file.originalname,
-      sheetName,
-      headers,
-      mapping,
-      previewRows: previewRows.slice(0, 200),
+      sheetName: parsed.sheetName,
+      headers: parsed.headers,
+      mapping: parsed.mapping,
+      previewRows: parsed.rows.slice(0, PREVIEW_ROW_LIMIT),
       summary: {
-        totalRows: jsonRows.length,
-        validRows,
-        invalidRows,
-        duplicateRows,
+        ...parsed.summary,
+        previewShown,
+        previewLimit: PREVIEW_ROW_LIMIT,
         existingInEvent: existingInEvent.length,
         existingGlobal: existingGlobal.length,
-        newPeople: Math.max(validRows - existingGlobal.length, 0)
+        newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0)
       }
     });
   } catch (error) {
+    if (error instanceof Error && error.message.includes("no contiene hojas")) {
+      res.status(400).json({ message: error.message });
+      return;
+    }
     next(error);
   }
 });
 
-router.post("/:id/imports/confirm", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, res, next) => {
-  try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const payload = confirmSchema.parse({ ...req.body, eventId: req.params.id });
-    const parseRows = payload.rows.map((row, idx) => {
-      const mapped: Record<string, unknown> = {};
-      const extra: Record<string, unknown> = {};
-      Object.entries(row).forEach(([key, value]) => {
-        const target = payload.mapping?.[key];
-        if (target && canonicalFields.includes(target as (typeof canonicalFields)[number])) {
-          applyImportMappedValue(mapped, target, value);
-        } else if (canonicalFields.includes(key as (typeof canonicalFields)[number])) {
-          applyImportMappedValue(mapped, key, value);
-        } else {
-          extra[key] = value;
-        }
-      });
-      const normalizedMapped = normalizeImportCanonical(mapped);
-      const cuil = normalizeCuil(String(normalizedMapped.cuil ?? ""));
-      const errors = validateImportRow(normalizedMapped);
-      return { rowNumber: idx + 2, mapped: normalizedMapped, extra, cuil, errors };
-    });
-
-    const validRows = parseRows.filter((row) => row.errors.length === 0);
-    const invalidRows = parseRows.filter((row) => row.errors.length > 0);
-
-    const batch = await prisma.importBatch.create({
-      data: {
-        eventId: req.params.id,
-        uploadedByUserId: req.auth!.id,
-        originalFilename: payload.originalFilename,
-        sheetName: payload.sheetName,
-        totalRows: parseRows.length,
-        validRows: validRows.length,
-        invalidRows: invalidRows.length,
-        duplicateRows: 0,
-        importedRows: 0
+router.post(
+  "/:id/imports/confirm",
+  requireRoles("SUPERADMIN", "ADMIN_EVENTO"),
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      if (!req.file || !req.file.originalname.endsWith(".xlsx")) {
+        res.status(400).json({ message: "Debe subir el archivo .xlsx" });
+        return;
       }
-    });
 
-    for (const row of invalidRows) {
-      await prisma.importBatchRowError.create({
-        data: {
-          importBatchId: batch.id,
-          rowNumber: row.rowNumber,
-          rawData: row.mapped as Prisma.InputJsonValue,
-          errorMessage: row.errors.join(", ")
+      const parsed = parseWorkbookRows(req.file.buffer);
+      const updatedBatch = await importParsedRows(
+        req.params.id,
+        req.auth!.id,
+        req.file.originalname,
+        parsed
+      );
+      await createAuditLog({
+        req,
+        action: "import.confirm",
+        entityType: "importBatch",
+        entityId: updatedBatch.id,
+        metadata: {
+          importedRows: updatedBatch.importedRows,
+          invalidRows: updatedBatch.invalidRows,
+          totalRows: updatedBatch.totalRows
         }
       });
-    }
-
-    let importedRows = 0;
-    for (const row of validRows) {
-      const firstName = String(row.mapped.nombre ?? "").trim();
-      const lastName = String(row.mapped.apellido ?? "").trim();
-      const person = await prisma.person.upsert({
-        where: { cuilNormalized: row.cuil },
-        create: {
-          cuilNormalized: row.cuil,
-          cuilRaw: String(row.mapped.cuil ?? row.cuil),
-          firstName,
-          lastName,
-          email: row.mapped.email ? String(row.mapped.email) : null,
-          phone: row.mapped.telefono ? String(row.mapped.telefono) : null,
-          company: row.mapped.empresa ? String(row.mapped.empresa) : null,
-          position: row.mapped.cargo ? String(row.mapped.cargo) : null,
-          notes: row.mapped.notes ? String(row.mapped.notes) : null
-        },
-        update: {
-          firstName,
-          lastName,
-          email: row.mapped.email ? String(row.mapped.email) : undefined,
-          phone: row.mapped.telefono ? String(row.mapped.telefono) : undefined,
-          company: row.mapped.empresa ? String(row.mapped.empresa) : undefined,
-          position: row.mapped.cargo ? String(row.mapped.cargo) : undefined,
-          notes: row.mapped.notes ? String(row.mapped.notes) : undefined
-        }
-      });
-
-      await prisma.eventPerson.upsert({
-        where: {
-          eventId_personId: { eventId: req.params.id, personId: person.id }
-        },
-        create: {
-          eventId: req.params.id,
-          personId: person.id,
-          source: "imported",
-          importBatchId: batch.id,
-          extraData: Prisma.JsonNull
-        },
-        update: {
-          importBatchId: batch.id,
-          extraData: Prisma.JsonNull
-        }
-      });
-      importedRows += 1;
-    }
-
-    const updatedBatch = await prisma.importBatch.update({
-      where: { id: batch.id },
-      data: { importedRows }
-    });
-    await createAuditLog({
-      req,
-      action: "import.confirm",
-      entityType: "importBatch",
-      entityId: batch.id,
-      metadata: {
-        importedRows,
-        invalidRows: invalidRows.length
+      res.status(201).json(updatedBatch);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("no contiene hojas")) {
+        res.status(400).json({ message: error.message });
+        return;
       }
-    });
-    res.status(201).json(updatedBatch);
-  } catch (error) {
-    next(error);
+      next(error);
+    }
   }
-});
+);
 
 router.get("/:id/imports", async (req, res, next) => {
   try {

@@ -68,17 +68,17 @@ export function ImportWizard({ eventId }: Props) {
     setErrorMessage(null);
     setIsConfirming(true);
     try {
-      const activeResult = result ?? (await preview());
-      if (!activeResult) return;
-      await api.post(`/events/${eventId}/imports/confirm`, {
-        eventId,
-        originalFilename: activeResult.originalFilename,
-        sheetName: activeResult.sheetName,
-        rows: activeResult.previewRows.map((row) => row.canonical),
-        mapping: undefined
-      });
+      if (!result) {
+        await preview();
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+      const { data: batch } = await api.post<{ importedRows: number }>(
+        `/events/${eventId}/imports/confirm`,
+        formData
+      );
       setStep(3);
-      alert("Importación confirmada");
+      alert(`Importación confirmada: ${batch.importedRows} fila(s) importada(s) del archivo completo.`);
     } catch (error: unknown) {
       const apiMessage =
         typeof error === "object" &&
@@ -167,8 +167,14 @@ export function ImportWizard({ eventId }: Props) {
           <div className="card card--flat" style={{ marginTop: "1rem" }}>
             <p style={{ margin: 0, fontWeight: 700, color: "var(--primary-container)" }}>
               Válidas: {String(result.summary.validRows)} · Inválidas: {String(result.summary.invalidRows)} · Duplicados en archivo:{" "}
-              {String(result.summary.duplicateRows ?? "—")}
+              {String(result.summary.duplicateRows ?? "—")} · Total filas: {String(result.summary.totalRows)}
             </p>
+            {Number(result.summary.totalRows) > Number(result.summary.previewShown ?? 0) ? (
+              <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                Vista previa: primeras {String(result.summary.previewShown)} filas de {String(result.summary.totalRows)}. Al
+                confirmar se importa el <strong>archivo completo</strong> ({String(result.summary.validRows)} válidas).
+              </p>
+            ) : null}
           </div>
           <ImportPreviewTable rows={result.previewRows} />
         </>
