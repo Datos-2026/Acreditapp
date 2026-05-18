@@ -169,12 +169,10 @@ export function ImportWizard({ eventId }: Props) {
               Válidas: {String(result.summary.validRows)} · Inválidas: {String(result.summary.invalidRows)} · Duplicados en archivo:{" "}
               {String(result.summary.duplicateRows ?? "—")} · Total filas: {String(result.summary.totalRows)}
             </p>
-            {Number(result.summary.totalRows) > Number(result.summary.previewShown ?? 0) ? (
-              <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-                Vista previa: primeras {String(result.summary.previewShown)} filas de {String(result.summary.totalRows)}. Al
-                confirmar se importa el <strong>archivo completo</strong> ({String(result.summary.validRows)} válidas).
-              </p>
-            ) : null}
+            <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+              Usá los filtros debajo para ver válidas, inválidas o duplicados. Al confirmar se importan las{" "}
+              {String(result.summary.validRows)} filas válidas del archivo completo.
+            </p>
           </div>
           <ImportPreviewTable rows={result.previewRows} />
         </>

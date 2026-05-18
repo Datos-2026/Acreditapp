@@ -35,8 +35,6 @@ const canonicalFields = [
   "notes"
 ] as const;
 const REQUIRED_SHEET_NAME = "BASE";
-/** Máximo de filas mostradas en pantalla; la importación confirma el archivo completo. */
-const PREVIEW_ROW_LIMIT = 200;
 
 type ImportParsedRow = {
   rowNumber: number;
@@ -295,18 +293,14 @@ router.post("/:id/imports/preview", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), 
       where: { cuilNormalized: { in: cuils } }
     });
 
-    const previewShown = Math.min(PREVIEW_ROW_LIMIT, parsed.rows.length);
-
     res.json({
       originalFilename: req.file.originalname,
       sheetName: parsed.sheetName,
       headers: parsed.headers,
       mapping: parsed.mapping,
-      previewRows: parsed.rows.slice(0, PREVIEW_ROW_LIMIT),
+      previewRows: parsed.rows,
       summary: {
         ...parsed.summary,
-        previewShown,
-        previewLimit: PREVIEW_ROW_LIMIT,
         existingInEvent: existingInEvent.length,
         existingGlobal: existingGlobal.length,
         newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0)
