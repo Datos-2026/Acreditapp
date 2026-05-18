@@ -120,6 +120,13 @@ export function EventDetailPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchedOnce, setSearchedOnce] = useState(false);
   const [showDeleteEvent, setShowDeleteEvent] = useState(false);
+  const [deletePersonTarget, setDeletePersonTarget] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [bulkDeleteScope, setBulkDeleteScope] = useState<
+    "all" | "accredited" | "accredited_imported" | null
+  >(null);
   const navigate = useNavigate();
   const canManageEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
   const editEventPath = `/eventos/${id}/editar`;
@@ -159,8 +166,17 @@ export function EventDetailPage() {
     queryFn: async () => (await api.get(`/events/${id}`)).data
   });
   const peopleQuery = useQuery({
-    queryKey: ["people", id],
-    queryFn: async () => (await api.get(`/events/${id}/people?page=1&pageSize=100`)).data
+    queryKey: ["people", id, "list"],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people?page=1&pageSize=5000`)).data as {
+        total: number;
+        rows: Array<{
+          id: string;
+          status: string;
+          source: string;
+          person: { cuilNormalized: string; lastName: string; firstName: string };
+        }>;
+      }
   });
   const activityQuery = useQuery({
     queryKey: ["activity", id],
@@ -296,11 +312,43 @@ export function EventDetailPage() {
     }
   });
 
-  const peopleRows = (peopleQuery.data?.rows ?? []) as Array<{
-    person: { cuilNormalized: string; lastName: string; firstName: string };
-    status: string;
-    source: string;
-  }>;
+  const peopleRows = peopleQuery.data?.rows ?? [];
+
+  const invalidatePeopleData = () => {
+    void queryClient.invalidateQueries({ queryKey: ["people", id] });
+    void queryClient.invalidateQueries({ queryKey: ["people", id, "list"] });
+    void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
+    void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+    void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+    void queryClient.invalidateQueries({ queryKey: ["event", id] });
+  };
+
+  const deletePersonMutation = useMutation({
+    mutationFn: async (eventPersonId: string) => {
+      await api.delete(`/events/${id}/people/${eventPersonId}`);
+    },
+    onSuccess: () => {
+      setDeletePersonTarget(null);
+      setSelected(null);
+      setUiNotice("Persona quitada del evento.");
+      invalidatePeopleData();
+    }
+  });
+
+  const bulkDeletePeopleMutation = useMutation({
+    mutationFn: async (scope: "all" | "accredited" | "accredited_imported") => {
+      const { data } = await api.delete<{ deleted: number }>(`/events/${id}/people/bulk`, {
+        params: { scope }
+      });
+      return data;
+    },
+    onSuccess: (data) => {
+      setBulkDeleteScope(null);
+      setSelected(null);
+      setUiNotice(`Se eliminaron ${data.deleted} registro(s) del evento.`);
+      invalidatePeopleData();
+    }
+  });
   const stats = statsQuery.data as EventStats | undefined;
 
   const fastKpis = useMemo(
@@ -583,16 +631,85 @@ export function EventDetailPage() {
       ) : null}
 
       {tab === "Personas" ? (
-        <DataTable
-          rows={peopleRows}
-          columns={[
-            { key: "cuil", header: "CUIL", render: (row) => row.person.cuilNormalized },
-            { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
-            { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
-            { key: "estado", header: "Estado", render: (row) => row.status },
-            { key: "origen", header: "Origen", render: (row) => row.source }
-          ]}
-        />
+        <div>
+          {canManageEvent ? (
+            <div
+              className="card"
+              style={{
+                marginBottom: "1rem",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "1rem",
+                justifyContent: "space-between",
+                alignItems: "flex-start"
+              }}
+            >
+              <div>
+                <h3 className="display-sm" style={{ fontSize: "1.2rem", margin: "0 0 0.35rem" }}>
+                  Gestión de la base del evento
+                </h3>
+                <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                  Total en nómina: <strong>{peopleQuery.data?.total ?? "…"}</strong>. Quitar una persona la saca del
+                  evento (pendiente o acreditada).
+                </p>
+              </div>
+              <div className="row gap" style={{ flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ color: "var(--error)" }}
+                  onClick={() => setBulkDeleteScope("accredited")}
+                >
+                  <Icon name="delete_sweep" />
+                  Vaciar acreditados
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ color: "var(--error)" }}
+                  onClick={() => setBulkDeleteScope("all")}
+                >
+                  <Icon name="delete_forever" />
+                  Vaciar toda la base
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <DataTable
+            rows={peopleRows}
+            columns={[
+              { key: "cuil", header: "CUIL", render: (row) => row.person.cuilNormalized },
+              { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
+              { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
+              { key: "estado", header: "Estado", render: (row) => row.status },
+              { key: "origen", header: "Origen", render: (row) => row.source },
+              ...(canManageEvent
+                ? [
+                    {
+                      key: "acciones",
+                      header: "",
+                      render: (row: (typeof peopleRows)[number]) => (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: "0.35rem 0.65rem", color: "var(--error)" }}
+                          title="Quitar del evento"
+                          onClick={() =>
+                            setDeletePersonTarget({
+                              id: row.id,
+                              label: `${row.person.lastName}, ${row.person.firstName} (${row.person.cuilNormalized})`
+                            })
+                          }
+                        >
+                          <Icon name="delete" />
+                        </button>
+                      )
+                    }
+                  ]
+                : [])
+            ]}
+          />
+        </div>
       ) : null}
 
       {tab === "Acreditados" ? (
@@ -639,6 +756,17 @@ export function EventDetailPage() {
                 <Icon name="download" />
                 XLSX desde base
               </button>
+              {canManageEvent ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ color: "var(--error)" }}
+                  onClick={() => setBulkDeleteScope("accredited_imported")}
+                >
+                  <Icon name="delete_sweep" />
+                  Vaciar esta lista
+                </button>
+              ) : null}
             </div>
           </div>
           {accreditedImportedQuery.isLoading ? (
@@ -1000,6 +1128,44 @@ export function EventDetailPage() {
         message={`¿Eliminar "${eventQuery.data?.name ?? "este evento"}"? Se borrarán personas del evento, importaciones e informes. No se puede deshacer.`}
         onCancel={() => setShowDeleteEvent(false)}
         onConfirm={() => deleteEventMutation.mutate()}
+        confirmLabel="Eliminar evento"
+        danger
+      />
+      <ConfirmDialog
+        open={Boolean(deletePersonTarget)}
+        title="Quitar persona del evento"
+        message={`¿Quitar a ${deletePersonTarget?.label ?? "esta persona"} de la nómina del evento? Dejará de figurar en la base y en acreditados.`}
+        onCancel={() => setDeletePersonTarget(null)}
+        onConfirm={() => deletePersonTarget && deletePersonMutation.mutate(deletePersonTarget.id)}
+        confirmLabel="Quitar"
+        danger
+      />
+      <ConfirmDialog
+        open={bulkDeleteScope === "all"}
+        title="Vaciar toda la base del evento"
+        message="Se eliminarán todas las personas de este evento (pendientes y acreditadas, importadas y manuales). No se puede deshacer."
+        onCancel={() => setBulkDeleteScope(null)}
+        onConfirm={() => bulkDeletePeopleMutation.mutate("all")}
+        confirmLabel="Vaciar toda la base"
+        danger
+      />
+      <ConfirmDialog
+        open={bulkDeleteScope === "accredited"}
+        title="Vaciar acreditados"
+        message="Se eliminarán del evento todas las personas acreditadas (importadas y fuera de base). Las pendientes en la base se mantienen."
+        onCancel={() => setBulkDeleteScope(null)}
+        onConfirm={() => bulkDeletePeopleMutation.mutate("accredited")}
+        confirmLabel="Vaciar acreditados"
+        danger
+      />
+      <ConfirmDialog
+        open={bulkDeleteScope === "accredited_imported"}
+        title="Vaciar acreditados desde base"
+        message="Se eliminarán del evento solo los acreditados que venían de la planilla importada (esta lista)."
+        onCancel={() => setBulkDeleteScope(null)}
+        onConfirm={() => bulkDeletePeopleMutation.mutate("accredited_imported")}
+        confirmLabel="Vaciar lista"
+        danger
       />
     </section>
   );

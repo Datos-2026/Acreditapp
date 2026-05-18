@@ -526,6 +526,82 @@ router.get("/:id/people", async (req, res, next) => {
   }
 });
 
+const bulkDeletePeopleScopes = ["all", "accredited", "pending", "imported", "accredited_imported"] as const;
+type BulkDeletePeopleScope = (typeof bulkDeletePeopleScopes)[number];
+
+/** Elimina personas del evento en lote. ?scope=all|accredited|pending|imported */
+router.delete(
+  "/:id/people/bulk",
+  requireRoles("SUPERADMIN", "ADMIN_EVENTO"),
+  async (req, res, next) => {
+    try {
+      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      const scope = String(req.query.scope ?? "") as BulkDeletePeopleScope;
+      if (!bulkDeletePeopleScopes.includes(scope)) {
+        res.status(400).json({
+          message: "Parámetro scope requerido: all, accredited, pending, imported o accredited_imported"
+        });
+        return;
+      }
+
+      const where: Prisma.EventPersonWhereInput = { eventId: req.params.id };
+      if (scope === "accredited") where.status = EventPersonStatus.accredited;
+      else if (scope === "pending") where.status = EventPersonStatus.pending;
+      else if (scope === "imported") where.source = "imported";
+      else if (scope === "accredited_imported") {
+        where.status = EventPersonStatus.accredited;
+        where.source = "imported";
+      }
+
+      const deleted = await prisma.eventPerson.deleteMany({ where });
+      await createAuditLog({
+        req,
+        action: "eventPerson.bulkDelete",
+        entityType: "event",
+        entityId: req.params.id,
+        metadata: { scope, deleted: deleted.count }
+      });
+      res.json({ deleted: deleted.count, scope });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  "/:id/people/:eventPersonId",
+  requireRoles("SUPERADMIN", "ADMIN_EVENTO"),
+  async (req, res, next) => {
+    try {
+      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      const eventPerson = await prisma.eventPerson.findUnique({
+        where: { id: req.params.eventPersonId },
+        include: { person: { select: { firstName: true, lastName: true, cuilNormalized: true } } }
+      });
+      if (!eventPerson || eventPerson.eventId !== req.params.id) {
+        res.status(404).json({ message: "Persona no encontrada en este evento" });
+        return;
+      }
+
+      await prisma.eventPerson.delete({ where: { id: eventPerson.id } });
+      await createAuditLog({
+        req,
+        action: "eventPerson.delete",
+        entityType: "eventPerson",
+        entityId: eventPerson.id,
+        metadata: {
+          eventId: req.params.id,
+          cuil: eventPerson.person.cuilNormalized,
+          status: eventPerson.status
+        }
+      });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.get("/:id/people/search", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
