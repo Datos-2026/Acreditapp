@@ -461,7 +461,7 @@ export function EventDetailPage() {
                 autoFocus
                 autoComplete="off"
                 className="input cuil-mega search-input"
-                placeholder="CUIL / DNI / Nombre"
+                placeholder="CUIL / DNI / Apellido"
                 value={liveSearchInput}
                 onChange={(e) => {
                   setUiNotice(null);
