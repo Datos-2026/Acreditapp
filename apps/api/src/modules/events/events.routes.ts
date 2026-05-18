@@ -21,6 +21,60 @@ const router = Router();
 router.use(requireAuth);
 router.use(rejectInformadorExceptReportRead);
 
+const PERSON_EXPORT_HEADER = [
+  "CUIL",
+  "Apellido",
+  "Nombre",
+  "DNI",
+  "Email",
+  "Telefono",
+  "Ministerio",
+  "Rol",
+  "Origen_inscripcion",
+  "Fuera_de_base",
+  "Acreditado_el",
+  "Acreditado_por",
+  "Notas_acreditacion"
+] as const;
+
+const personExportInclude = {
+  person: true,
+  accreditedByUser: { select: { name: true, email: true } }
+} as const;
+
+type EventPersonExportRow = Prisma.EventPersonGetPayload<{ include: typeof personExportInclude }>;
+
+function mapEventPersonToExportRow(r: EventPersonExportRow): string[] {
+  const origen = r.source === "manual" ? "manual" : "importado";
+  const fueraDeBase = r.source === "manual" ? "si" : "no";
+  const accAt = r.accreditedAt
+    ? new Date(r.accreditedAt).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })
+    : "";
+  const by = r.accreditedByUser?.name ?? r.accreditedByUser?.email ?? "";
+  return [
+    r.person.cuilNormalized,
+    r.person.lastName,
+    r.person.firstName,
+    r.person.dni ?? "",
+    r.person.email ?? "",
+    r.person.phone ?? "",
+    r.person.company ?? "",
+    r.person.position ?? "",
+    origen,
+    fueraDeBase,
+    accAt,
+    by,
+    r.accreditationNotes ?? ""
+  ];
+}
+
+function buildPersonExportXlsxBuffer(sheetName: string, dataRows: string[][]): Buffer {
+  const sheet = XLSX.utils.aoa_to_sheet([Array.from(PERSON_EXPORT_HEADER), ...dataRows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
 const eventSchema = z.object({
   name: z.string().min(3),
   description: z.string().optional().nullable(),
@@ -134,52 +188,11 @@ router.get("/:id/export/accredited", async (req, res, next) => {
         status: EventPersonStatus.accredited,
         ...sourceFilter
       },
-      include: {
-        person: true,
-        accreditedByUser: { select: { name: true, email: true } }
-      },
+      include: personExportInclude,
       orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
     });
 
-    const header = [
-      "CUIL",
-      "Apellido",
-      "Nombre",
-      "DNI",
-      "Email",
-      "Telefono",
-      "Ministerio",
-      "Rol",
-      "Origen_inscripcion",
-      "Fuera_de_base",
-      "Acreditado_el",
-      "Acreditado_por",
-      "Notas_acreditacion"
-    ];
-
-    const dataRows = rows.map((r) => {
-      const origen = r.source === "manual" ? "manual" : "importado";
-      const fueraDeBase = r.source === "manual" ? "si" : "no";
-      const accAt = r.accreditedAt
-        ? new Date(r.accreditedAt).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })
-        : "";
-      const by = r.accreditedByUser?.name ?? r.accreditedByUser?.email ?? "";
-      return [
-        r.person.cuilNormalized,
-        r.person.lastName,
-        r.person.firstName,
-        r.person.dni ?? "",
-        r.person.email ?? "",
-        r.person.phone ?? "",
-        r.person.company ?? "",
-        r.person.position ?? "",
-        origen,
-        fueraDeBase,
-        accAt,
-        by,
-        r.accreditationNotes ?? ""
-      ];
-    });
+    const dataRows = rows.map(mapEventPersonToExportRow);
 
     const filename = manualOnly
       ? "acreditados-fuera-de-base.xlsx"
@@ -187,10 +200,7 @@ router.get("/:id/export/accredited", async (req, res, next) => {
         ? "acreditados-desde-base.xlsx"
         : "acreditados-todos.xlsx";
 
-    const sheet = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, sheet, "Acreditados");
-    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const buffer = buildPersonExportXlsxBuffer("Acreditados", dataRows);
 
     await createAuditLog({
       req,
@@ -198,6 +208,44 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       entityType: "event",
       entityId: req.params.id,
       metadata: { manualOnly, importedOnly, rows: rows.length, format: "xlsx" }
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** XLSX de la nómina del evento (base importada). Mismas columnas que exportación de acreditados. */
+router.get("/:id/export/people", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const importedOnly = String(req.query.importedOnly ?? "true") === "true";
+
+    const rows = await prisma.eventPerson.findMany({
+      where: {
+        eventId: req.params.id,
+        ...(importedOnly ? { source: "imported" as const } : {})
+      },
+      include: personExportInclude,
+      orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
+    });
+
+    const dataRows = rows.map(mapEventPersonToExportRow);
+    const filename = importedOnly ? "base-evento-importada.xlsx" : "nomina-evento-completa.xlsx";
+    const buffer = buildPersonExportXlsxBuffer("BASE", dataRows);
+
+    await createAuditLog({
+      req,
+      action: "event.export.people",
+      entityType: "event",
+      entityId: req.params.id,
+      metadata: { importedOnly, rows: rows.length, format: "xlsx" }
     });
 
     res.setHeader(

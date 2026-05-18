@@ -31,5 +31,24 @@ export async function downloadAccreditedXlsx(eventId: string, scope: AccreditedE
   URL.revokeObjectURL(url);
 }
 
+/** Nómina importada del evento (mismas columnas que acreditados). */
+export async function downloadPeopleBaseXlsx(
+  eventId: string,
+  options?: { importedOnly?: boolean }
+): Promise<void> {
+  const importedOnly = options?.importedOnly ?? true;
+  const res = await api.get(`/events/${eventId}/export/people`, {
+    responseType: "blob",
+    params: { importedOnly }
+  });
+  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = importedOnly ? "base-evento-importada.xlsx" : "nomina-evento-completa.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** @deprecated Usar downloadAccreditedXlsx */
 export const downloadAccreditedCsv = downloadAccreditedXlsx;

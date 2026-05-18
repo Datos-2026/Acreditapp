@@ -24,7 +24,7 @@ import { ActivityTimeline } from "../../components/ActivityTimeline";
 import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { downloadAccreditedXlsx } from "../../lib/downloadExport";
+import { downloadAccreditedXlsx, downloadPeopleBaseXlsx } from "../../lib/downloadExport";
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
@@ -632,8 +632,7 @@ export function EventDetailPage() {
 
       {tab === "Personas" ? (
         <div>
-          {canManageEvent ? (
-            <div
+          <div
               className="card"
               style={{
                 marginBottom: "1rem",
@@ -656,25 +655,42 @@ export function EventDetailPage() {
               <div className="row gap" style={{ flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  className="btn btn-secondary"
-                  style={{ color: "var(--error)" }}
-                  onClick={() => setBulkDeleteScope("accredited")}
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      await downloadPeopleBaseXlsx(id, { importedOnly: true });
+                    } catch {
+                      alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                    }
+                  }}
                 >
-                  <Icon name="delete_sweep" />
-                  Vaciar acreditados
+                  <Icon name="download" />
+                  Exportar base XLSX
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ color: "var(--error)" }}
-                  onClick={() => setBulkDeleteScope("all")}
-                >
-                  <Icon name="delete_forever" />
-                  Vaciar toda la base
-                </button>
+                {canManageEvent ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ color: "var(--error)" }}
+                      onClick={() => setBulkDeleteScope("accredited")}
+                    >
+                      <Icon name="delete_sweep" />
+                      Vaciar acreditados
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ color: "var(--error)" }}
+                      onClick={() => setBulkDeleteScope("all")}
+                    >
+                      <Icon name="delete_forever" />
+                      Vaciar toda la base
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
-          ) : null}
           <DataTable
             rows={peopleRows}
             columns={[
