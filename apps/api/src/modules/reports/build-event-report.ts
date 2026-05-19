@@ -198,13 +198,6 @@ export async function buildEventReportPayload(eventId: string): Promise<EventRep
     { key: "absent", label: "Ausentes (sin acreditar, base importada)", count: absentPeople },
     { key: "manual", label: "Registros manuales (total)", count: manualTotal }
   ];
-  if (invalidRegistrations > 0) {
-    statusDistribution.push({
-      key: "invalid",
-      label: "Incidencias en importación (filas)",
-      count: invalidRegistrations
-    });
-  }
 
   const operationalTable = buildOperationalTable({
     attendanceRate,

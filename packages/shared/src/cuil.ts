@@ -21,3 +21,32 @@ export function isValidCuil(cuil: string): boolean {
   const verifier = remainder === 11 ? 0 : remainder === 10 ? 9 : remainder;
   return verifier === digits[10];
 }
+
+export type ManualDocument = {
+  cuilNormalized: string;
+  dni: string | null;
+  cuilRaw: string;
+};
+
+/** CUIL válido (11 dígitos) o DNI (7–8 dígitos) para altas manuales / fuera de base. */
+export function parseManualDocument(raw: string): ManualDocument {
+  const trimmed = raw.trim();
+  const digits = normalizeCuil(trimmed);
+
+  if (digits.length === 11) {
+    if (!isValidCuil(digits)) {
+      throw new Error("CUIL inválido");
+    }
+    return { cuilNormalized: digits, dni: null, cuilRaw: trimmed };
+  }
+
+  if (digits.length >= 7 && digits.length <= 8) {
+    return {
+      cuilNormalized: `00${digits.padStart(9, "0")}`,
+      dni: digits,
+      cuilRaw: trimmed
+    };
+  }
+
+  throw new Error("Ingresá un CUIL válido (11 dígitos) o un DNI (7 u 8 dígitos)");
+}

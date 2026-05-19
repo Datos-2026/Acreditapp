@@ -119,7 +119,7 @@ export function EventReportPage() {
     return `El análisis automático no pudo generarse: ${aiFallbackMessage} Reintentá más tarde o revisá la configuración del servidor. El resto del informe utiliza datos operativos reales.`;
   })();
 
-  const pieData = d.statusDistribution.filter((s) => s.count > 0);
+  const pieData = d.statusDistribution.filter((s) => s.count > 0 && s.key !== "invalid");
   const findings =
     analysis?.keyFindings && analysis.keyFindings.length > 0 ? analysis.keyFindings : d.suggestedInsights;
 

@@ -27,7 +27,7 @@ export function ManualPersonForm({ onSubmit, initialCuilRaw = "", submitLabel = 
   return (
     <form className="card form-grid" onSubmit={handleSubmit(onSubmit)}>
       <h3>Registrar fuera de base</h3>
-      <input className="input input--boxed" placeholder="CUIL" {...register("cuilRaw")} />
+      <input className="input input--boxed" placeholder="CUIL / DNI" {...register("cuilRaw")} />
       <input className="input input--boxed" placeholder="Nombre" {...register("firstName")} />
       <input className="input input--boxed" placeholder="Apellido" {...register("lastName")} />
       <input className="input input--boxed" placeholder="Email (opcional)" {...register("email")} />

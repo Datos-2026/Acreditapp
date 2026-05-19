@@ -18,18 +18,29 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [accessToken, setToken] = useState<string | null>(null);
 
   const refreshMe = async () => {
+    const loadMe = async () => {
+      const me = await api.get<AuthUser>("/auth/me");
+      setUser(me.data);
+    };
+
     try {
       if (!accessToken) {
         const refreshResponse = await api.post("/auth/refresh");
         setToken(refreshResponse.data.accessToken);
         setAccessToken(refreshResponse.data.accessToken);
       }
-      const me = await api.get<AuthUser>("/auth/me");
-      setUser(me.data);
+      await loadMe();
     } catch {
-      setUser(null);
-      setToken(null);
-      setAccessToken(null);
+      try {
+        const refreshResponse = await api.post("/auth/refresh");
+        setToken(refreshResponse.data.accessToken);
+        setAccessToken(refreshResponse.data.accessToken);
+        await loadMe();
+      } catch {
+        setUser(null);
+        setToken(null);
+        setAccessToken(null);
+      }
     }
   };
 

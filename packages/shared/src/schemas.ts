@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidCuil, normalizeCuil } from "./cuil";
+import { isValidCuil, normalizeCuil, parseManualDocument } from "./cuil";
 import { ROLE_OPTIONS } from "./constants";
 
 export const loginSchema = z.object({
@@ -18,8 +18,22 @@ export const cuilSchema = z
   .refine((value) => value.length === 11, "CUIL debe tener 11 dígitos")
   .refine((value) => isValidCuil(value), "CUIL inválido");
 
+const manualDocumentSchema = z
+  .string()
+  .min(1, "CUIL o DNI requerido")
+  .superRefine((value, ctx) => {
+    try {
+      parseManualDocument(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : "CUIL o DNI inválido"
+      });
+    }
+  });
+
 export const manualPersonSchema = z.object({
-  cuilRaw: cuilSchema,
+  cuilRaw: manualDocumentSchema,
   firstName: z.string().min(1, "Nombre requerido"),
   lastName: z.string().min(1, "Apellido requerido"),
   email: z

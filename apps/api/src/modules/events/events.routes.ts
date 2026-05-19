@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import type { EventReportAiAnalysis } from "@gcba/shared";
-import { normalizeCuil, manualPersonSchema } from "@gcba/shared";
+import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil } from "@gcba/shared";
 import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
@@ -653,13 +653,22 @@ router.delete(
 router.get("/:id/people/search", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const cuil = normalizeCuil(String(req.query.cuil ?? ""));
-    if (cuil.length !== 11) throw new AppError("CUIL inválido", 400);
+    const raw = String(req.query.cuil ?? req.query.dni ?? "").trim();
+    const digits = normalizeCuil(raw);
+    let personWhere: Prisma.PersonWhereInput;
+    if (digits.length === 11) {
+      if (!isValidCuil(digits)) throw new AppError("CUIL inválido", 400);
+      personWhere = { cuilNormalized: digits };
+    } else if (digits.length >= 7 && digits.length <= 8) {
+      personWhere = { dni: digits };
+    } else {
+      throw new AppError("Ingresá un CUIL válido (11 dígitos) o un DNI (7 u 8 dígitos)", 400);
+    }
 
     const person = await prisma.eventPerson.findFirst({
       where: {
         eventId: req.params.id,
-        person: { cuilNormalized: cuil }
+        person: personWhere
       },
       include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
     });
@@ -677,26 +686,42 @@ router.get("/:id/people/search", async (req, res, next) => {
 router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), validateBody(manualPersonSchema), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const cuilNormalized = normalizeCuil(req.body.cuilRaw);
-    const person = await prisma.person.upsert({
-      where: { cuilNormalized },
-      update: {
-        firstName: req.body.firstName,
-        lastName: req.body.lastName,
-        email: req.body.email,
-        phone: req.body.phone,
-        notes: req.body.notes
-      },
-      create: {
-        cuilNormalized,
-        cuilRaw: req.body.cuilRaw,
-        firstName: req.body.firstName,
-        lastName: req.body.lastName,
-        email: req.body.email,
-        phone: req.body.phone,
-        notes: req.body.notes
+    const doc = parseManualDocument(req.body.cuilRaw);
+    const existing = await prisma.person.findFirst({
+      where: {
+        OR: [
+          { cuilNormalized: doc.cuilNormalized },
+          ...(doc.dni ? [{ dni: doc.dni }] : [])
+        ]
       }
     });
+
+    const personData = {
+      cuilRaw: doc.cuilRaw,
+      firstName: req.body.firstName,
+      lastName: req.body.lastName,
+      email: req.body.email,
+      phone: req.body.phone,
+      notes: req.body.notes,
+      dni: doc.dni ?? existing?.dni ?? null
+    };
+
+    const person = existing
+      ? await prisma.person.update({
+          where: { id: existing.id },
+          data: {
+            ...personData,
+            cuilNormalized: existing.cuilNormalized.length === 11 && isValidCuil(existing.cuilNormalized)
+              ? existing.cuilNormalized
+              : doc.cuilNormalized
+          }
+        })
+      : await prisma.person.create({
+          data: {
+            cuilNormalized: doc.cuilNormalized,
+            ...personData
+          }
+        });
 
     const eventPerson = await prisma.eventPerson.upsert({
       where: {
