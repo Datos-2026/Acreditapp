@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build -w @gcba/shared && vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build -w @gcba/shared && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run"

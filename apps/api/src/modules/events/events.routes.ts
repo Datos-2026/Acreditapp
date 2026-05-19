@@ -659,10 +659,10 @@ router.get("/:id/people/search", async (req, res, next) => {
     if (digits.length === 11) {
       if (!isValidCuil(digits)) throw new AppError("CUIL inválido", 400);
       personWhere = { cuilNormalized: digits };
-    } else if (digits.length >= 7 && digits.length <= 8) {
+    } else if (digits.length >= 6 && digits.length <= 8) {
       personWhere = { dni: digits };
     } else {
-      throw new AppError("Ingresá un CUIL válido (11 dígitos) o un DNI (7 u 8 dígitos)", 400);
+      throw new AppError("Ingresá un CUIL válido (11 dígitos) o un DNI (6 a 8 dígitos)", 400);
     }
 
     const person = await prisma.eventPerson.findFirst({

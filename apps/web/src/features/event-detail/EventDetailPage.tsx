@@ -259,7 +259,7 @@ export function EventDetailPage() {
   const liveRows = useMemo(() => (livePeopleQuery.data?.rows ?? []) as LiveSearchRow[], [livePeopleQuery.data?.rows]);
   const normalizedDigits = debouncedSearch.replace(/\D/g, "");
   const isExactDocumentSearch =
-    normalizedDigits.length === 11 || (normalizedDigits.length >= 7 && normalizedDigits.length <= 8);
+    normalizedDigits.length === 11 || (normalizedDigits.length >= 6 && normalizedDigits.length <= 8);
   const exactCuilQuery = useQuery({
     queryKey: ["people", id, "searchByCuil", normalizedDigits],
     queryFn: async () =>
@@ -267,13 +267,12 @@ export function EventDetailPage() {
     enabled: tab === "Acreditar" && isExactDocumentSearch
   });
   const displayRows = useMemo(() => {
-    const onlyDigits = debouncedSearch.replace(/\D/g, "");
     if (liveRows.length > 0) return liveRows;
     if (isExactDocumentSearch && exactCuilQuery.data) {
       return [exactCuilQuery.data as unknown as LiveSearchRow];
     }
     return [];
-  }, [liveRows, exactCuilQuery.data, debouncedSearch, isExactDocumentSearch]);
+  }, [liveRows, exactCuilQuery.data, isExactDocumentSearch]);
   const accreditMutation = useMutation({
     mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
     onSuccess: () => {

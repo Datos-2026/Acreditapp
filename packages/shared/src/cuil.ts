@@ -40,7 +40,7 @@ export function parseManualDocument(raw: string): ManualDocument {
     return { cuilNormalized: digits, dni: null, cuilRaw: trimmed };
   }
 
-  if (digits.length >= 7 && digits.length <= 8) {
+  if (digits.length >= 6 && digits.length <= 8) {
     return {
       cuilNormalized: `00${digits.padStart(9, "0")}`,
       dni: digits,
@@ -48,5 +48,9 @@ export function parseManualDocument(raw: string): ManualDocument {
     };
   }
 
-  throw new Error("Ingresá un CUIL válido (11 dígitos) o un DNI (7 u 8 dígitos)");
+  if (digits.length === 9 || digits.length === 10) {
+    throw new Error("El DNI debe tener entre 6 y 8 dígitos (sin puntos ni guiones)");
+  }
+
+  throw new Error("Ingresá un CUIL válido (11 dígitos) o un DNI (6 a 8 dígitos)");
 }

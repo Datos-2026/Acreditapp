@@ -1,20 +1,17 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { manualPersonSchema } from "@gcba/shared";
-import type { z } from "zod";
+import { manualPersonFormSchema, type ManualPersonFormValues } from "../lib/manualPersonFormSchema";
 
 type Props = {
-  onSubmit: (values: FormValues) => void;
+  onSubmit: (values: ManualPersonFormValues) => void;
   initialCuilRaw?: string;
   submitLabel?: string;
 };
 
-type FormValues = z.infer<typeof manualPersonSchema>;
-
 export function ManualPersonForm({ onSubmit, initialCuilRaw = "", submitLabel = "Crear persona manual" }: Props) {
-  const { register, handleSubmit, formState, reset } = useForm<FormValues>({
-    resolver: zodResolver(manualPersonSchema),
+  const { register, handleSubmit, formState, reset } = useForm<ManualPersonFormValues>({
+    resolver: zodResolver(manualPersonFormSchema),
     defaultValues: {
       cuilRaw: initialCuilRaw
     }
