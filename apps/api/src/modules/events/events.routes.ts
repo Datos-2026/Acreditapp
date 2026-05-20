@@ -247,10 +247,11 @@ router.get("/:id/export/two-sheets", async (req, res, next) => {
 
     const fueraDeBaseRows = accreditedRows.filter((r) => r.source === "manual");
 
-    const cuils = [...new Set(accreditedRows.map((r) => r.person.cuilNormalized))];
+    /** Lookup del directorio solo para las filas de FUERA DE BASE (la hoja ACREDITADOS no lleva columnas de dotación). */
+    const cuils = [...new Set(fueraDeBaseRows.map((r) => r.person.cuilNormalized))];
     const dnis = [
       ...new Set(
-        accreditedRows.map((r) => r.person.dni).filter((d): d is string => Boolean(d))
+        fueraDeBaseRows.map((r) => r.person.dni).filter((d): d is string => Boolean(d))
       )
     ];
 

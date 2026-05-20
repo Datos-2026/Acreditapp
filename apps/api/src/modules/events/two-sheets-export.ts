@@ -2,7 +2,25 @@ import * as XLSX from "xlsx";
 import type { Prisma } from "../../prisma-exports";
 import { pickDirectoryEmail } from "../directory/directory-logic";
 
-export const TWO_SHEETS_HEADER = [
+/** Hoja ACREDITADOS: mismas columnas que la exportación habitual de acreditados. */
+export const ACCREDITED_SHEET_HEADER = [
+  "CUIL",
+  "Apellido",
+  "Nombre",
+  "DNI",
+  "Email",
+  "Telefono",
+  "Ministerio",
+  "Rol",
+  "Origen_inscripcion",
+  "Fuera_de_base",
+  "Acreditado_el",
+  "Acreditado_por",
+  "Notas_acreditacion"
+] as const;
+
+/** Hoja FUERA DE BASE: columnas de dotación + columnas operativas. */
+export const FUERA_DE_BASE_SHEET_HEADER = [
   "MINISTERIO",
   "AYN",
   "NUM_DOC",
@@ -53,7 +71,30 @@ function buildAyn(lastName: string, firstName: string): string {
   return `${lastName}, ${firstName}`.trim();
 }
 
-export function mapEventPersonToTwoSheetsRow(
+/** Mapeo de la hoja ACREDITADOS: sin columnas extra del directorio. */
+export function mapEventPersonToAccreditedRow(r: EventPersonTwoSheetsRow): string[] {
+  const origen = r.source === "manual" ? "manual" : "importado";
+  const fueraDeBase = r.source === "manual" ? "si" : "no";
+  const by = r.accreditedByUser?.name ?? r.accreditedByUser?.email ?? "";
+  return [
+    r.person.cuilNormalized,
+    r.person.lastName,
+    r.person.firstName,
+    r.person.dni ?? "",
+    r.person.email ?? "",
+    r.person.phone ?? "",
+    r.person.company ?? "",
+    r.person.position ?? "",
+    origen,
+    fueraDeBase,
+    formatAccreditedAt(r.accreditedAt),
+    by,
+    r.accreditationNotes ?? ""
+  ];
+}
+
+/** Mapeo de la hoja FUERA DE BASE: enriquece con datos del directorio cuando hay match. */
+export function mapEventPersonToFueraDeBaseRow(
   r: EventPersonTwoSheetsRow,
   directory?: DirectoryLookup | null
 ): string[] {
@@ -64,10 +105,7 @@ export function mapEventPersonToTwoSheetsRow(
   const dirFirst = directory?.firstName ?? r.person.firstName;
   const dirDni = directory?.dni ?? r.person.dni ?? "";
   const ministerioDot = directory?.ministerio ?? r.person.company ?? "";
-  const mail =
-    directory?.mail ??
-    r.person.email ??
-    "";
+  const mail = directory?.mail ?? r.person.email ?? "";
 
   return [
     ministerioDot,
@@ -128,7 +166,11 @@ export function resolveDirectoryLookup(
   map: Map<string, DirectoryLookup>,
   person: { cuilNormalized: string; dni: string | null }
 ): DirectoryLookup | null {
-  return map.get(`cuil:${person.cuilNormalized}`) ?? (person.dni ? map.get(`dni:${person.dni}`) : null) ?? null;
+  return (
+    map.get(`cuil:${person.cuilNormalized}`) ??
+    (person.dni ? map.get(`dni:${person.dni}`) : null) ??
+    null
+  );
 }
 
 export function buildTwoSheetsXlsxBuffer(
@@ -136,17 +178,16 @@ export function buildTwoSheetsXlsxBuffer(
   fueraDeBaseRows: EventPersonTwoSheetsRow[],
   directoryMap: Map<string, DirectoryLookup>
 ): Buffer {
-  const accreditedData = accreditedRows.map((r) =>
-    mapEventPersonToTwoSheetsRow(r, resolveDirectoryLookup(directoryMap, r.person))
-  );
+  const accreditedData = accreditedRows.map((r) => mapEventPersonToAccreditedRow(r));
   const fueraData = fueraDeBaseRows.map((r) =>
-    mapEventPersonToTwoSheetsRow(r, resolveDirectoryLookup(directoryMap, r.person))
+    mapEventPersonToFueraDeBaseRow(r, resolveDirectoryLookup(directoryMap, r.person))
   );
 
-  const header = Array.from(TWO_SHEETS_HEADER);
+  const accHeader = Array.from(ACCREDITED_SHEET_HEADER);
+  const fueraHeader = Array.from(FUERA_DE_BASE_SHEET_HEADER);
   const wb = XLSX.utils.book_new();
-  const sheetAcc = XLSX.utils.aoa_to_sheet([header, ...accreditedData]);
-  const sheetFuera = XLSX.utils.aoa_to_sheet([header, ...fueraData]);
+  const sheetAcc = XLSX.utils.aoa_to_sheet([accHeader, ...accreditedData]);
+  const sheetFuera = XLSX.utils.aoa_to_sheet([fueraHeader, ...fueraData]);
   XLSX.utils.book_append_sheet(wb, sheetAcc, "ACREDITADOS");
   XLSX.utils.book_append_sheet(wb, sheetFuera, "FUERA DE BASE");
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
