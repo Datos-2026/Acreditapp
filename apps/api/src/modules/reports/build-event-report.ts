@@ -7,12 +7,48 @@ import type {
 import { EventPersonStatus } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 
+/** Zona horaria operativa del evento: GCBA, Argentina. */
+const AR_TZ = "America/Argentina/Buenos_Aires";
+
+/** Granularidad de los buckets del gráfico de acreditaciones (en minutos). */
+export const ACCREDITATION_BUCKET_MINUTES = 15;
+
 function formatDateAr(d: Date): string {
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: AR_TZ
+  });
 }
 
 function formatTimeAr(d: Date): string {
-  return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: AR_TZ
+  });
+}
+
+function arDateParts(date: Date): { y: string; mo: string; d: string; h: string; m: string } {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: AR_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+  return {
+    y: get("year"),
+    mo: get("month"),
+    d: get("day"),
+    h: get("hour"),
+    m: get("minute")
+  };
 }
 
 function formatPct(n: number, decimals = 1): string {
@@ -31,21 +67,33 @@ export function calculateAbsenteeRate(expected: number, absent: number): number 
   return Number(((absent / expected) * 100).toFixed(2));
 }
 
-export function groupAccreditationsByHour(dates: Array<Date | null>): EventReportAccreditationHour[] {
-  const map = new Map<string, number>();
+/**
+ * Agrupa las acreditaciones por franja en horario de Buenos Aires.
+ * Granularidad: {@link ACCREDITATION_BUCKET_MINUTES} (por defecto 15 minutos),
+ * para que el gráfico muestre hora y minuto.
+ */
+export function groupAccreditationsByHour(
+  dates: Array<Date | null>,
+  bucketMinutes: number = ACCREDITATION_BUCKET_MINUTES
+): EventReportAccreditationHour[] {
+  const safeBucket = bucketMinutes > 0 && bucketMinutes <= 60 ? bucketMinutes : ACCREDITATION_BUCKET_MINUTES;
+  const map = new Map<string, { label: string; count: number }>();
   for (const date of dates) {
     if (!date) continue;
-    const bucket = new Date(date);
-    bucket.setMinutes(0, 0, 0);
-    const key = bucket.toISOString();
-    map.set(key, (map.get(key) ?? 0) + 1);
+    const { y, mo, d, h, m } = arDateParts(date);
+    const bucketMin = String(Math.floor(Number(m) / safeBucket) * safeBucket).padStart(2, "0");
+    const key = `${y}-${mo}-${d}T${h}:${bucketMin}`;
+    const label = `${h}:${bucketMin}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      map.set(key, { label, count: 1 });
+    }
   }
   return Array.from(map.entries())
-    .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
-    .map(([iso, count]) => ({
-      label: new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
-      count
-    }));
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, value]) => ({ label: value.label, count: value.count }));
 }
 
 function buildOperationalTable(params: {
