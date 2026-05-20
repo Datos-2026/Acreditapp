@@ -22,6 +22,7 @@ export function AdminLayout() {
   const onAdminHome = location.pathname === "/admin";
   const onEventosSection = location.pathname.startsWith("/admin/eventos");
   const onUsuarios = location.pathname === "/admin/usuarios";
+  const onDirectorio = location.pathname === "/admin/directorio";
 
   return (
     <div className="app-shell">
@@ -48,6 +49,10 @@ export function AdminLayout() {
           <Link to="/admin/usuarios" className={linkClass(onUsuarios)}>
             <Icon name="manage_accounts" filled={onUsuarios} />
             Usuarios
+          </Link>
+          <Link to="/admin/directorio" className={linkClass(onDirectorio)}>
+            <Icon name="folder_shared" filled={onDirectorio} />
+            Directorio GCBA
           </Link>
         </nav>
 

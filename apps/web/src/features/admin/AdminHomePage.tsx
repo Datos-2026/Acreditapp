@@ -39,6 +39,19 @@ export function AdminHomePage() {
         </article>
         <article className="card">
           <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+            Directorio GCBA
+          </h3>
+          <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>
+            Base global de dotación (reserva). Quien no está en la base del evento pero sí en el directorio se acredita
+            como fuera de base de anotados.
+          </p>
+          <Link to="/admin/directorio" className="btn btn-primary">
+            <Icon name="folder_shared" />
+            Gestionar directorio
+          </Link>
+        </article>
+        <article className="card">
+          <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
             Usuarios
           </h3>
           <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>

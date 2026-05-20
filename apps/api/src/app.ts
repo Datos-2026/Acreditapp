@@ -15,6 +15,7 @@ import { eventsRoutes } from "./modules/events/events.routes";
 import { importsRoutes } from "./modules/imports/imports.routes";
 import { dashboardRoutes } from "./modules/dashboard/dashboard.routes";
 import { importDetailRoutes } from "./modules/imports/import-detail.routes";
+import { directoryRoutes } from "./modules/directory/directory.routes";
 
 export const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/v1/events", eventsRoutes);
 app.use("/api/v1/events", importsRoutes);
 app.use("/api/v1/events", dashboardRoutes);
 app.use("/api/v1/imports", importDetailRoutes);
+app.use("/api/v1/directory", directoryRoutes);
 
 /** Built to `dist/src/*.js` → three levels up to the `apps/` workspace folder. */
 const __dirnameApp = __dirname;

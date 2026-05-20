@@ -85,3 +85,48 @@ export type EventReportPayload = {
   /** ISO 8601 — última vez que se guardó el análisis IA. */
   aiAnalysisUpdatedAt?: string | null;
 };
+
+export type PersonSummaryDto = {
+  cuilNormalized: string;
+  firstName: string;
+  lastName: string;
+  dni: string | null;
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  position?: string | null;
+};
+
+export type EventPersonDto = {
+  id: string;
+  status: "pending" | "accredited";
+  source: "manual" | "imported";
+  accreditedAt: string | null;
+  person: PersonSummaryDto;
+  accreditedByUser?: { id: string; name: string } | null;
+};
+
+export type DirectoryPersonDto = {
+  cuilNormalized: string;
+  dni: string | null;
+  firstName: string;
+  lastName: string;
+  ministerio: string | null;
+  litPuesto: string | null;
+  descRep: string | null;
+  email: string | null;
+};
+
+export type DirectorySearchResult =
+  | { inEvent: true; eventPerson: EventPersonDto }
+  | { inEvent: false; fromDirectory: true; directoryPerson: DirectoryPersonDto }
+  | { inEvent: false; fromDirectory: false };
+
+export type DirectoryStatsDto = {
+  total: number;
+  lastUpload: {
+    filename: string;
+    createdAt: string;
+    uploadedBy: string;
+  } | null;
+};

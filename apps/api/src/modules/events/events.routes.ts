@@ -16,6 +16,12 @@ import { ensureEventAccess } from "./event-access";
 import { ensureNotAlreadyAccredited } from "./event-logic";
 import { buildEventReportPayload } from "../reports/build-event-report";
 import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
+import { pickDirectoryEmail, toDirectoryPersonDto } from "../directory/directory-logic";
+import {
+  buildDirectoryLookupMap,
+  buildTwoSheetsXlsxBuffer,
+  personExportInclude as twoSheetsPersonInclude
+} from "./two-sheets-export";
 
 const router = Router();
 router.use(requireAuth);
@@ -86,6 +92,10 @@ const eventSchema = z.object({
 
 const assignUsersSchema = z.object({
   userIds: z.array(z.string())
+});
+
+const manualFromDirectorySchema = z.object({
+  cuilNormalized: z.string().length(11, "CUIL de 11 dígitos requerido")
 });
 
 const createEventStaffUserSchema = z.object({
@@ -215,6 +225,63 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** XLSX con hojas ACREDITADOS y FUERA DE BASE (columnas dotación + operativas). */
+router.get("/:id/export/two-sheets", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+
+    const accreditedRows = await prisma.eventPerson.findMany({
+      where: {
+        eventId: req.params.id,
+        status: EventPersonStatus.accredited
+      },
+      include: twoSheetsPersonInclude,
+      orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
+    });
+
+    const fueraDeBaseRows = accreditedRows.filter((r) => r.source === "manual");
+
+    const cuils = [...new Set(accreditedRows.map((r) => r.person.cuilNormalized))];
+    const dnis = [
+      ...new Set(
+        accreditedRows.map((r) => r.person.dni).filter((d): d is string => Boolean(d))
+      )
+    ];
+
+    const directoryRows = await prisma.directoryPerson.findMany({
+      where: {
+        OR: [
+          { cuilNormalized: { in: cuils } },
+          ...(dnis.length > 0 ? [{ dni: { in: dnis } }] : [])
+        ]
+      }
+    });
+    const directoryMap = buildDirectoryLookupMap(directoryRows);
+    const buffer = buildTwoSheetsXlsxBuffer(accreditedRows, fueraDeBaseRows, directoryMap);
+
+    await createAuditLog({
+      req,
+      action: "event.export.twoSheets",
+      entityType: "event",
+      entityId: req.params.id,
+      metadata: {
+        accredited: accreditedRows.length,
+        fueraDeBase: fueraDeBaseRows.length,
+        format: "xlsx"
+      }
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", 'attachment; filename="acreditacion-2-hojas.xlsx"');
     res.send(buffer);
   } catch (error) {
     next(error);
@@ -665,7 +732,7 @@ router.get("/:id/people/search", async (req, res, next) => {
       throw new AppError("Ingresá un CUIL válido (11 dígitos) o un DNI (6 a 8 dígitos)", 400);
     }
 
-    const person = await prisma.eventPerson.findFirst({
+    const eventPerson = await prisma.eventPerson.findFirst({
       where: {
         eventId: req.params.id,
         person: personWhere
@@ -673,15 +740,117 @@ router.get("/:id/people/search", async (req, res, next) => {
       include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
     });
 
-    if (!person) {
-      res.status(404).json({ message: "No encontrado en este evento" });
+    if (eventPerson) {
+      res.json({ inEvent: true, eventPerson });
       return;
     }
-    res.json(person);
+
+    const directoryWhere: Prisma.DirectoryPersonWhereInput =
+      digits.length === 11 ? { cuilNormalized: digits } : { dni: digits };
+
+    const directoryPerson = await prisma.directoryPerson.findFirst({
+      where: directoryWhere
+    });
+
+    if (directoryPerson) {
+      res.json({
+        inEvent: false,
+        fromDirectory: true,
+        directoryPerson: toDirectoryPersonDto(directoryPerson)
+      });
+      return;
+    }
+
+    res.status(404).json({ message: "No encontrado en este evento ni en el directorio GCBA" });
   } catch (error) {
     next(error);
   }
 });
+
+router.post(
+  "/:id/people/manual-from-directory",
+  requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"),
+  validateBody(manualFromDirectorySchema),
+  async (req, res, next) => {
+    try {
+      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      const cuilNormalized = normalizeCuil(req.body.cuilNormalized);
+      if (!isValidCuil(cuilNormalized)) throw new AppError("CUIL inválido", 400);
+
+      const directoryPerson = await prisma.directoryPerson.findUnique({
+        where: { cuilNormalized }
+      });
+      if (!directoryPerson) {
+        throw new AppError("No está en el directorio GCBA", 404);
+      }
+
+      const email = pickDirectoryEmail(directoryPerson);
+      const existing = await prisma.person.findFirst({
+        where: {
+          OR: [
+            { cuilNormalized },
+            ...(directoryPerson.dni ? [{ dni: directoryPerson.dni }] : [])
+          ]
+        }
+      });
+
+      const person = existing
+        ? await prisma.person.update({
+            where: { id: existing.id },
+            data: {
+              cuilNormalized,
+              cuilRaw: cuilNormalized,
+              firstName: directoryPerson.firstName,
+              lastName: directoryPerson.lastName,
+              dni: directoryPerson.dni ?? existing.dni,
+              email: email ?? existing.email,
+              company: directoryPerson.ministerio ?? existing.company,
+              position: directoryPerson.litPuesto ?? existing.position
+            }
+          })
+        : await prisma.person.create({
+            data: {
+              cuilNormalized,
+              cuilRaw: cuilNormalized,
+              firstName: directoryPerson.firstName,
+              lastName: directoryPerson.lastName,
+              dni: directoryPerson.dni,
+              email,
+              company: directoryPerson.ministerio,
+              position: directoryPerson.litPuesto
+            }
+          });
+
+      const eventPerson = await prisma.eventPerson.upsert({
+        where: {
+          eventId_personId: {
+            eventId: req.params.id,
+            personId: person.id
+          }
+        },
+        update: { source: "manual" },
+        create: {
+          eventId: req.params.id,
+          personId: person.id,
+          source: "manual"
+        },
+        include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+      });
+
+      await createAuditLog({
+        req,
+        action: "eventPerson.manualFromDirectory",
+        entityType: "eventPerson",
+        entityId: eventPerson.id,
+        metadata: { cuilNormalized }
+      });
+
+      res.status(201).json(eventPerson);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), validateBody(manualPersonSchema), async (req, res, next) => {
   try {

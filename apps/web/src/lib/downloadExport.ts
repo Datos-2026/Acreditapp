@@ -50,5 +50,19 @@ export async function downloadPeopleBaseXlsx(
   URL.revokeObjectURL(url);
 }
 
+/** XLSX con hojas ACREDITADOS y FUERA DE BASE (dotación + columnas operativas). */
+export async function downloadEventTwoSheetsXlsx(eventId: string): Promise<void> {
+  const res = await api.get(`/events/${eventId}/export/two-sheets`, {
+    responseType: "blob"
+  });
+  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "acreditacion-2-hojas.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** @deprecated Usar downloadAccreditedXlsx */
 export const downloadAccreditedCsv = downloadAccreditedXlsx;

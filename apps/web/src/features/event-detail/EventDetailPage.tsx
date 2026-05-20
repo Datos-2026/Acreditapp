@@ -24,7 +24,12 @@ import { ActivityTimeline } from "../../components/ActivityTimeline";
 import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { downloadAccreditedXlsx, downloadPeopleBaseXlsx } from "../../lib/downloadExport";
+import type { DirectoryPersonDto, DirectorySearchResult } from "@gcba/shared";
+import {
+  downloadAccreditedXlsx,
+  downloadEventTwoSheetsXlsx,
+  downloadPeopleBaseXlsx
+} from "../../lib/downloadExport";
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
@@ -262,17 +267,39 @@ export function EventDetailPage() {
     normalizedDigits.length === 11 || (normalizedDigits.length >= 6 && normalizedDigits.length <= 8);
   const exactCuilQuery = useQuery({
     queryKey: ["people", id, "searchByCuil", normalizedDigits],
-    queryFn: async () =>
-      (await api.get(`/events/${id}/people/search?cuil=${encodeURIComponent(normalizedDigits)}`)).data as EventPerson,
+    queryFn: async (): Promise<DirectorySearchResult | null> => {
+      try {
+        const { data } = await api.get<DirectorySearchResult>(
+          `/events/${id}/people/search?cuil=${encodeURIComponent(normalizedDigits)}`
+        );
+        return data;
+      } catch (err) {
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (status === 404) return { inEvent: false, fromDirectory: false };
+        throw err;
+      }
+    },
     enabled: tab === "Acreditar" && isExactDocumentSearch
   });
+
+  const exactEventPerson = useMemo(() => {
+    const data = exactCuilQuery.data;
+    return data && data.inEvent ? (data.eventPerson as EventPerson) : null;
+  }, [exactCuilQuery.data]);
+
+  const directoryMatch = useMemo((): DirectoryPersonDto | null => {
+    const data = exactCuilQuery.data;
+    if (data && !data.inEvent && data.fromDirectory) return data.directoryPerson;
+    return null;
+  }, [exactCuilQuery.data]);
+
   const displayRows = useMemo(() => {
     if (liveRows.length > 0) return liveRows;
-    if (isExactDocumentSearch && exactCuilQuery.data) {
-      return [exactCuilQuery.data as unknown as LiveSearchRow];
+    if (isExactDocumentSearch && exactEventPerson) {
+      return [exactEventPerson as unknown as LiveSearchRow];
     }
     return [];
-  }, [liveRows, exactCuilQuery.data, isExactDocumentSearch]);
+  }, [liveRows, exactEventPerson, isExactDocumentSearch]);
   const accreditMutation = useMutation({
     mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
     onSuccess: () => {
@@ -292,6 +319,28 @@ export function EventDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
     }
   });
+  const manualFromDirectoryMutation = useMutation({
+    mutationFn: async (cuilNormalized: string) => {
+      const created = await api.post<{ id: string }>(`/events/${id}/people/manual-from-directory`, {
+        cuilNormalized
+      });
+      await api.post(`/events/${id}/people/${created.data.id}/accredit`);
+      return created.data;
+    },
+    onSuccess: () => {
+      setSelected(null);
+      setLastSearchedCuil("");
+      setLiveSearchInput("");
+      setDebouncedSearch("");
+      setUiNotice("Persona del directorio GCBA acreditada fuera de base.");
+      void queryClient.invalidateQueries({ queryKey: ["people", id] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "searchByCuil"] });
+      void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+    }
+  });
+
   const manualAndAccreditMutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
       const created = await api.post<{ id: string }>(`/events/${id}/people/manual`, payload);
@@ -507,8 +556,15 @@ export function EventDetailPage() {
               <p className="page-state" style={{ padding: "1.25rem 0" }}>
                 Buscando...
               </p>
-            ) : livePeopleQuery.isError || (normalizedDigits.length === 11 && exactCuilQuery.isError) ? (
+            ) : livePeopleQuery.isError || exactCuilQuery.isError ? (
               <p className="message-error">No se pudo consultar la base en este momento. Reintentá.</p>
+            ) : directoryMatch && displayRows.length === 0 ? (
+              <div>
+                <p className="label-md field-label">Resultados (directorio GCBA)</p>
+                <p className="message-warning" style={{ marginTop: "0.5rem" }}>
+                  Encontrado en el directorio GCBA, no en la base de este evento. Ver detalle a la derecha.
+                </p>
+              </div>
             ) : (
               <>
                 <p className="label-md field-label">Resultados ({displayRows.length})</p>
@@ -539,8 +595,10 @@ export function EventDetailPage() {
             {!livePeopleQuery.isLoading &&
             !exactCuilQuery.isLoading &&
             !livePeopleQuery.isError &&
+            !exactCuilQuery.isError &&
             debouncedSearch.length >= 2 &&
-            displayRows.length === 0 ? (
+            displayRows.length === 0 &&
+            !directoryMatch ? (
               <div style={{ marginTop: "1rem" }}>
                 <p className="message-warning">No hay coincidencias en la base para esta búsqueda.</p>
                 <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
@@ -561,7 +619,44 @@ export function EventDetailPage() {
             ) : null}
           </div>
           <div className="card panel detail-panel accred-console__right">
-            {selected ? (
+            {directoryMatch && !selected ? (
+              <div className="accred-detail">
+                <div
+                  className="message-warning"
+                  style={{ background: "var(--warning-container)", padding: "0.75rem", borderRadius: 8, marginBottom: "1rem" }}
+                >
+                  <strong>ESTE USUARIO ES FUERA DE BASE DE ANOTADOS</strong>
+                  <p style={{ margin: "0.35rem 0 0" }}>
+                    Está en el directorio GCBA pero no fue cargado en la base de este evento.
+                  </p>
+                </div>
+                <div className="accred-detail__head">
+                  <h3 className="accred-detail__name">{`${directoryMatch.lastName}, ${directoryMatch.firstName}`}</h3>
+                  <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
+                    <button
+                      className="btn btn-danger"
+                      type="button"
+                      disabled={manualFromDirectoryMutation.isPending}
+                      onClick={() => manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized)}
+                    >
+                      <Icon name="verified" />
+                      {manualFromDirectoryMutation.isPending ? "Procesando…" : "Acreditar fuera de base"}
+                    </button>
+                  </RoleGuard>
+                </div>
+                <div className="accred-detail__rows">
+                  <p><strong>CUIL</strong> {directoryMatch.cuilNormalized}</p>
+                  <p><strong>DNI</strong> {directoryMatch.dni ?? "—"}</p>
+                  <p><strong>Ministerio</strong> {directoryMatch.ministerio ?? "—"}</p>
+                  <p><strong>Puesto</strong> {directoryMatch.litPuesto ?? "—"}</p>
+                  <p><strong>Rep.</strong> {directoryMatch.descRep ?? "—"}</p>
+                  <p><strong>Email</strong> {directoryMatch.email ?? "—"}</p>
+                </div>
+                {manualFromDirectoryMutation.isError ? (
+                  <p className="message-error">No se pudo acreditar desde el directorio. Reintentá.</p>
+                ) : null}
+              </div>
+            ) : selected ? (
               <div className="accred-detail">
                 <div className="accred-detail__head">
                   <h3 className="accred-detail__name">{`${selected.person.lastName}, ${selected.person.firstName}`}</h3>
@@ -586,7 +681,9 @@ export function EventDetailPage() {
               <p style={{ color: "var(--on-surface-variant)", fontWeight: 600 }}>
                 {debouncedSearch.length >= 2 && displayRows.length > 0 && !searchedOnce
                   ? "Seleccioná una persona desde la lista para ver su detalle."
-                  : "Escribí y seleccioná una persona para ver su detalle."}
+                  : directoryMatch
+                    ? "Persona del directorio GCBA — usá el botón para acreditar fuera de base."
+                    : "Escribí y seleccioná una persona para ver su detalle."}
               </p>
             )}
             {accreditMutation.isError ? <p className="message-error">No se pudo acreditar. Reintentá en unos segundos.</p> : null}
@@ -772,6 +869,20 @@ export function EventDetailPage() {
               >
                 <Icon name="download" />
                 XLSX desde base
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    await downloadEventTwoSheetsXlsx(id);
+                  } catch {
+                    alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                  }
+                }}
+              >
+                <Icon name="table_view" />
+                Exportar XLSX (2 hojas)
               </button>
               {canManageEvent ? (
                 <button

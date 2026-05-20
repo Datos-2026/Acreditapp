@@ -13,6 +13,7 @@ import { EventDetailPage } from "../features/event-detail/EventDetailPage";
 import { EventReportPage } from "../features/event-report/EventReportPage";
 import { UsersAdminPage } from "../features/admin/UsersAdminPage";
 import { AdminHomePage } from "../features/admin/AdminHomePage";
+import { DirectoryAdminPage } from "../features/admin/DirectoryAdminPage";
 
 export function AppRouter() {
   return (
@@ -24,6 +25,7 @@ export function AppRouter() {
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminHomePage />} />
           <Route path="usuarios" element={<UsersAdminPage />} />
+          <Route path="directorio" element={<DirectoryAdminPage />} />
           <Route path="eventos" element={<EventsListPage />} />
           <Route path="eventos/calendario" element={<EventsCalendarPage />} />
           <Route path="eventos/nuevo" element={<CreateEventPage />} />
