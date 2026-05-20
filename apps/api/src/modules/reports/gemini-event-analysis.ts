@@ -14,7 +14,6 @@ export function buildGeminiEventReportPrompt(data: EventReportPayload): string {
     absentPeople: data.absentPeople,
     manualRegistrations: data.manualRegistrations,
     manualAccredited: data.manualAccredited,
-    invalidRegistrations: data.invalidRegistrations,
     attendanceRate: data.attendanceRate,
     absenteeRate: data.absenteeRate,
     accreditationByHour: data.accreditationByHour,
@@ -22,9 +21,16 @@ export function buildGeminiEventReportPrompt(data: EventReportPayload): string {
     operationalTable: data.operationalTable
   };
 
-  return `Actuá como analista de gestión de eventos y acreditaciones. Con base exclusivamente en los datos JSON siguientes, generá un análisis ejecutivo breve, profesional y accionable sobre el desempeño del evento. No inventes datos ni cifras que no aparezcan en el JSON. Si falta información para un punto, indicá que no se encuentra disponible en los datos provistos.
+  return `Actuás como analista de eventos y acreditaciones. Con base exclusivamente en los datos JSON siguientes, generá un análisis ejecutivo cálido, claro y constructivo sobre el desempeño del evento. No inventes datos ni cifras que no aparezcan en el JSON. Si falta información para un punto, indicá que no se encuentra disponible.
 
-El análisis debe cubrir: resumen general, hallazgos principales, alertas operativas, recomendaciones y conclusión. Tono institucional y claro.
+Tono: profesional pero amable y motivador, en español rioplatense (vos), evitando el lenguaje técnico frío. Destacá los logros del equipo y de la convocatoria, y planteá las áreas a mejorar como oportunidades, no como problemas.
+
+Reglas importantes:
+- NO menciones filas inválidas, duplicados, errores de planilla, importaciones fallidas, calidad de datos del Excel ni nada similar.
+- NO uses la palabra "incidencia" ni hables del proceso de importación del archivo.
+- Enfocate en las personas convocadas, asistencia, ausentismo, comportamiento por franja horaria y altas en sede.
+
+El análisis debe cubrir: resumen general, hallazgos principales, oportunidades de mejora (en lugar de "alertas"), recomendaciones y conclusión.
 
 IMPORTANTE: Respondé únicamente con un objeto JSON válido (sin markdown, sin texto fuera del JSON) con esta forma exacta:
 {
@@ -34,6 +40,8 @@ IMPORTANTE: Respondé únicamente con un objeto JSON válido (sin markdown, sin 
   "recommendations": ["string", "..."],
   "conclusion": "string"
 }
+
+En el campo "operationalAlerts" devolvé oportunidades de mejora en tono constructivo (no alarmista).
 
 Datos del evento (JSON):
 ${JSON.stringify(metrics, null, 2)}`;

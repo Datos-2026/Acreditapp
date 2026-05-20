@@ -222,11 +222,6 @@ export function EventReportPage() {
               <div className="er-kpi-foot">Altas fuera de planilla · Acreditados man.: {d.manualAccredited}</div>
             </article>
           </div>
-          {d.invalidRegistrations > 0 ? (
-            <p style={{ marginTop: "12px", fontSize: "13px", color: "var(--er-muted)" }}>
-              Filas inválidas o duplicadas en importaciones: <strong>{d.invalidRegistrations}</strong>
-            </p>
-          ) : null}
         </section>
 
         <section>
@@ -325,7 +320,7 @@ export function EventReportPage() {
                 <p>{analysis.executiveSummary}</p>
                 {analysis.operationalAlerts.length > 0 ? (
                   <>
-                    <p style={{ fontWeight: 700, marginBottom: 4 }}>Alertas operativas</p>
+                    <p style={{ fontWeight: 700, marginBottom: 4 }}>Oportunidades de mejora</p>
                     <ul style={{ margin: "0 0 10px 1.1rem", padding: 0 }}>
                       {analysis.operationalAlerts.map((t, i) => (
                         <li key={i}>{t}</li>

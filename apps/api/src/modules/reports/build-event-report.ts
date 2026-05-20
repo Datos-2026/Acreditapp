@@ -52,10 +52,9 @@ function buildOperationalTable(params: {
   attendanceRate: number;
   absenteeRate: number;
   manualAccredited: number;
-  invalidRegistrations: number;
   expectedPeople: number;
 }): EventReportOperationalRow[] {
-  const { attendanceRate, absenteeRate, manualAccredited, invalidRegistrations, expectedPeople } = params;
+  const { attendanceRate, absenteeRate, manualAccredited, expectedPeople } = params;
 
   const attendanceState: EventReportOperationalRow["state"] =
     attendanceRate >= 70 ? "ok" : attendanceRate >= 50 ? "warn" : "bad";
@@ -63,47 +62,36 @@ function buildOperationalTable(params: {
     absenteeRate <= 30 ? "ok" : absenteeRate <= 45 ? "warn" : "bad";
   const manualState: EventReportOperationalRow["state"] =
     manualAccredited === 0 ? "ok" : manualAccredited <= Math.max(5, expectedPeople * 0.1) ? "warn" : "bad";
-  const invalidState: EventReportOperationalRow["state"] =
-    invalidRegistrations === 0 ? "ok" : invalidRegistrations <= 5 ? "warn" : "bad";
 
   return [
     {
-      indicator: "Tasa de asistencia (sobre base importada)",
+      indicator: "Tasa de asistencia (sobre base convocada)",
       value: `${formatPct(attendanceRate)}%`,
       reading:
         attendanceRate >= 70
-          ? "Convocatoria alineada o por encima del umbral habitual (70%)."
+          ? "¡Muy buena convocatoria! La asistencia superó el 70% de la base."
           : attendanceRate >= 50
-            ? "Convocatoria moderada; conviene revisar comunicación previa."
-            : "Convocatoria baja respecto a la base importada.",
+            ? "Buena participación. Hay margen para potenciar la comunicación previa y acercarse al 70%."
+            : "La convocatoria quedó por debajo de lo esperado; una buena oportunidad para reforzar recordatorios y canales de difusión.",
       state: attendanceState
     },
     {
-      indicator: "Tasa de ausentismo (base importada)",
+      indicator: "Ausentes en la base convocada",
       value: `${formatPct(absenteeRate)}%`,
       reading:
         absenteeRate <= 30
-          ? "Ausentismo acotado respecto a convocados."
-          : "Parte significativa de la base no acreditó; revisar causas operativas.",
+          ? "Nivel de ausentes acotado: la mayoría de la base convocada se acercó al evento."
+          : "Una parte de la base no llegó a acreditarse; conviene mirar qué motivó esa ausencia para la próxima.",
       state: absentState
     },
     {
-      indicator: "Acreditaciones manuales (en sede)",
+      indicator: "Acreditaciones en sede (fuera de base)",
       value: String(manualAccredited),
       reading:
         manualAccredited === 0
-          ? "Sin altas manuales acreditadas en el período."
-          : "Participantes acreditados fuera de la planilla importada.",
+          ? "No hubo altas fuera de base: todos los acreditados estaban en la planilla."
+          : "Hubo acreditaciones fuera de base: ¡buen trabajo del equipo en sede recibiendo asistentes espontáneos!",
       state: manualState
-    },
-    {
-      indicator: "Filas inválidas / duplicadas (importaciones)",
-      value: String(invalidRegistrations),
-      reading:
-        invalidRegistrations === 0
-          ? "Sin incidencias registradas en lotes de importación."
-          : "Revisar calidad de datos en planillas y reglas de importación.",
-      state: invalidState
     }
   ];
 }
@@ -118,27 +106,39 @@ function buildSuggestedInsights(params: {
   const out: string[] = [];
 
   if (attendanceRate >= 70) {
-    out.push(`La asistencia sobre convocados alcanzó el ${formatPct(attendanceRate)}%, en línea con objetivos operativos habituales.`);
+    out.push(
+      `¡Muy buena convocatoria! La asistencia llegó al ${formatPct(attendanceRate)}% de la base convocada.`
+    );
+  } else if (attendanceRate >= 50) {
+    out.push(
+      `Asistencia del ${formatPct(attendanceRate)}%: una participación sólida con margen para crecer en próximas ediciones.`
+    );
   } else if (attendanceRate > 0) {
-    out.push(`La asistencia sobre convocados fue del ${formatPct(attendanceRate)}%; conviene analizar recordatorios y canales de difusión.`);
+    out.push(
+      `La asistencia fue del ${formatPct(attendanceRate)}%. Es una buena oportunidad para revisar recordatorios y canales de difusión.`
+    );
   }
 
   if (accreditationByHour.length > 0) {
     const peak = [...accreditationByHour].sort((a, b) => b.count - a.count)[0];
     if (peak && peak.count > 0) {
-      out.push(`El mayor flujo de acreditaciones se concentró en la franja ${peak.label} (${peak.count} registros).`);
+      out.push(
+        `El pico de acreditaciones se dio cerca de las ${peak.label} (${peak.count} personas). Útil para dimensionar el staff la próxima.`
+      );
     }
   }
 
   if (manualAccredited > 0 && accreditedPeople > 0) {
     const pctMan = (manualAccredited / accreditedPeople) * 100;
     out.push(
-      `El ${formatPct(pctMan)}% de las acreditaciones corresponden a registros manuales en sede (${manualAccredited} personas).`
+      `El ${formatPct(pctMan)}% de las personas se acreditaron fuera de base (${manualAccredited} personas): el equipo en sede acompañó muy bien la afluencia espontánea.`
     );
+  } else if (accreditedPeople > 0) {
+    out.push("Todas las acreditaciones se hicieron desde la base convocada: una operación bien planificada.");
   }
 
   while (out.length < 3) {
-    out.push("Los datos consolidados permiten comparar este evento con próximas convocatorias usando las mismas métricas.");
+    out.push("Tenés datos consolidados para comparar este evento con futuras convocatorias y seguir mejorando.");
     if (out.length >= 3) break;
   }
 
@@ -157,8 +157,7 @@ export async function buildEventReportPayload(eventId: string): Promise<EventRep
     accreditedImported,
     accreditedManual,
     pendingImported,
-    accreditationsTimes,
-    batchSums
+    accreditationsTimes
   ] = await Promise.all([
     prisma.eventPerson.count({ where: { eventId } }),
     prisma.eventPerson.count({ where: { eventId, source: "imported" } }),
@@ -176,15 +175,8 @@ export async function buildEventReportPayload(eventId: string): Promise<EventRep
     prisma.eventPerson.findMany({
       where: { eventId, status: EventPersonStatus.accredited, accreditedAt: { not: null } },
       select: { accreditedAt: true }
-    }),
-    prisma.importBatch.aggregate({
-      where: { eventId },
-      _sum: { invalidRows: true, duplicateRows: true }
     })
   ]);
-
-  const invalidRegistrations =
-    (batchSums._sum.invalidRows ?? 0) + (batchSums._sum.duplicateRows ?? 0);
 
   const expectedPeople = importedTotal;
   const absentPeople = pendingImported;
@@ -203,7 +195,6 @@ export async function buildEventReportPayload(eventId: string): Promise<EventRep
     attendanceRate,
     absenteeRate,
     manualAccredited: accreditedManual,
-    invalidRegistrations,
     expectedPeople
   });
 
@@ -234,7 +225,7 @@ export async function buildEventReportPayload(eventId: string): Promise<EventRep
     absentPeople,
     manualRegistrations: manualTotal,
     manualAccredited: accreditedManual,
-    invalidRegistrations,
+    invalidRegistrations: 0,
 
     attendanceRate,
     absenteeRate,
