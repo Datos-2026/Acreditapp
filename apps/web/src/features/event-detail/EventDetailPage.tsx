@@ -856,9 +856,16 @@ export function EventDetailPage() {
           <ConfirmDialog
             open={showConfirm}
             title="Confirmar acreditación"
-            message="Esta acción acredita a la persona en el evento."
+            message={
+              selected
+                ? `¿Seguro que querés acreditar a ${selected.person.lastName}, ${selected.person.firstName}?`
+                : "Esta acción acredita a la persona en el evento."
+            }
+            confirmLabel={accreditMutation.isPending ? "Acreditando…" : "Acreditar"}
             onCancel={() => setShowConfirm(false)}
-            onConfirm={() => accreditMutation.mutate()}
+            onConfirm={() => {
+              if (!accreditMutation.isPending) accreditMutation.mutate();
+            }}
           />
           {showFueraDeBaseModal ? (
             <div className="modal-backdrop">
