@@ -52,6 +52,18 @@ export function AdminHomePage() {
         </article>
         <article className="card">
           <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+            Podio histórico
+          </h3>
+          <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>
+            Top 3 acreditadores con más personas acreditadas sumando todos los eventos.
+          </p>
+          <Link to="/admin/podio" className="btn btn-primary">
+            <Icon name="emoji_events" />
+            Ver podio
+          </Link>
+        </article>
+        <article className="card">
+          <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
             Usuarios
           </h3>
           <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>

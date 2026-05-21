@@ -23,6 +23,7 @@ export function AdminLayout() {
   const onEventosSection = location.pathname.startsWith("/admin/eventos");
   const onUsuarios = location.pathname === "/admin/usuarios";
   const onDirectorio = location.pathname === "/admin/directorio";
+  const onPodio = location.pathname === "/admin/podio";
 
   return (
     <div className="app-shell">
@@ -53,6 +54,10 @@ export function AdminLayout() {
           <Link to="/admin/directorio" className={linkClass(onDirectorio)}>
             <Icon name="folder_shared" filled={onDirectorio} />
             Directorio GCBA
+          </Link>
+          <Link to="/admin/podio" className={linkClass(onPodio)}>
+            <Icon name="emoji_events" filled={onPodio} />
+            Podio
           </Link>
         </nav>
 
