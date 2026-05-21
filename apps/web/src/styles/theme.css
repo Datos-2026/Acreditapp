@@ -1792,13 +1792,20 @@ a.tab-btn--informe {
 
 .search-cuil-form__icon {
   position: absolute;
-  right: 0.5rem;
+  right: 0.65rem;
   top: 50%;
   transform: translateY(-50%);
+  width: 2.5rem;
+  height: 2.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+
+.search-cuil-form__icon > * {
+  display: block;
+  line-height: 1;
 }
 
 /* —— Podio histórico de acreditadores (admin) —— */

@@ -665,7 +665,7 @@ export function EventDetailPage() {
                 </button>
               ) : null}
               <div className="search-cuil-form__icon">
-                <Icon name="search" style={{ fontSize: "2.5rem", color: "var(--secondary-container)" }} />
+                <Icon name="search" style={{ fontSize: "2rem", color: "var(--secondary-container)" }} />
               </div>
             </div>
             <p className="search-cuil-form__hint search-help">
