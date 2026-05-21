@@ -62,16 +62,31 @@ type EventStats = {
 /** Paleta para tortas / barras (contrasta sobre fondo oscuro del tema) */
 const CHART_COLORS = ["#4a9eff", "#5ce0a8", "#e8b86d", "#c084fc", "#f472b6"];
 
-function formatTimelineTick(iso: string) {
+const MONTH_SHORT_AR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/**
+ * Formatea los buckets devueltos por `/stats/timeline`.
+ * El backend manda strings `"YYYY-MM-DDTHH:mm"` ya en hora local Argentina
+ * (cada 15 minutos), así que no aplicamos otra zona horaria al renderizar.
+ */
+function formatTimelineTick(raw: string) {
+  if (typeof raw !== "string") return String(raw ?? "");
+  const localMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(raw);
+  if (localMatch) {
+    const [, , mm, dd, hh, mi] = localMatch;
+    const month = MONTH_SHORT_AR[Number(mm) - 1] ?? mm;
+    return `${dd}-${month}, ${hh}:${mi}`;
+  }
   try {
-    return new Date(iso).toLocaleString("es-AR", {
+    return new Date(raw).toLocaleString("es-AR", {
       day: "2-digit",
       month: "short",
       hour: "2-digit",
-      minute: "2-digit"
+      minute: "2-digit",
+      timeZone: "America/Argentina/Buenos_Aires"
     });
   } catch {
-    return iso;
+    return raw;
   }
 }
 
@@ -1292,7 +1307,7 @@ export function EventDetailPage() {
                   Acreditaciones en el tiempo
                 </h3>
                 <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--on-surface-variant)" }}>
-                  Cantidad de acreditaciones por hora (según la marca de tiempo guardada).
+                  Cantidad de acreditaciones cada 15 minutos · horario Argentina.
                 </p>
                 <div className="dashboard-chart-body">
                   {timelineQuery.isLoading ? (

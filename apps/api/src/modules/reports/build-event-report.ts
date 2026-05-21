@@ -6,12 +6,14 @@ import type {
 } from "@gcba/shared";
 import { EventPersonStatus } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
+import {
+  ACCREDITATION_BUCKET_MINUTES,
+  AR_TZ,
+  arBucketKey,
+  arBucketLabelHm
+} from "../../lib/time-buckets";
 
-/** Zona horaria operativa del evento: GCBA, Argentina. */
-const AR_TZ = "America/Argentina/Buenos_Aires";
-
-/** Granularidad de los buckets del gráfico de acreditaciones (en minutos). */
-export const ACCREDITATION_BUCKET_MINUTES = 15;
+export { ACCREDITATION_BUCKET_MINUTES };
 
 function formatDateAr(d: Date): string {
   return d.toLocaleDateString("es-AR", {
@@ -28,27 +30,6 @@ function formatTimeAr(d: Date): string {
     minute: "2-digit",
     timeZone: AR_TZ
   });
-}
-
-function arDateParts(date: Date): { y: string; mo: string; d: string; h: string; m: string } {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: AR_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  });
-  const parts = fmt.formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
-  return {
-    y: get("year"),
-    mo: get("month"),
-    d: get("day"),
-    h: get("hour"),
-    m: get("minute")
-  };
 }
 
 function formatPct(n: number, decimals = 1): string {
@@ -76,14 +57,11 @@ export function groupAccreditationsByHour(
   dates: Array<Date | null>,
   bucketMinutes: number = ACCREDITATION_BUCKET_MINUTES
 ): EventReportAccreditationHour[] {
-  const safeBucket = bucketMinutes > 0 && bucketMinutes <= 60 ? bucketMinutes : ACCREDITATION_BUCKET_MINUTES;
   const map = new Map<string, { label: string; count: number }>();
   for (const date of dates) {
     if (!date) continue;
-    const { y, mo, d, h, m } = arDateParts(date);
-    const bucketMin = String(Math.floor(Number(m) / safeBucket) * safeBucket).padStart(2, "0");
-    const key = `${y}-${mo}-${d}T${h}:${bucketMin}`;
-    const label = `${h}:${bucketMin}`;
+    const key = arBucketKey(date, bucketMinutes);
+    const label = arBucketLabelHm(date, bucketMinutes);
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;

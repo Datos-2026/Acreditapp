@@ -4,22 +4,26 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { rejectInformadorExceptReportRead } from "../../middlewares/informador-scope";
 import { ensureEventAccess } from "../events/event-access";
+import { arBucketKey } from "../../lib/time-buckets";
 
 const router = Router();
 router.use(requireAuth);
 router.use(rejectInformadorExceptReportRead);
 
+/**
+ * Buckets de acreditación cada 15 minutos en horario Argentina.
+ * `bucket` se devuelve como string `"YYYY-MM-DDTHH:mm"` en hora local AR (sin TZ),
+ * para que el cliente lo muestre tal cual sin volver a aplicar otra zona horaria.
+ */
 function buildTimelineBuckets(dates: Array<Date | null>): Array<{ bucket: string; count: number }> {
   const map = new Map<string, number>();
   for (const date of dates) {
     if (!date) continue;
-    const bucket = new Date(date);
-    bucket.setMinutes(0, 0, 0);
-    const key = bucket.toISOString();
+    const key = arBucketKey(date);
     map.set(key, (map.get(key) ?? 0) + 1);
   }
   return Array.from(map.entries())
-    .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([bucket, count]) => ({ bucket, count }));
 }
 
