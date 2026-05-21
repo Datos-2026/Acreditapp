@@ -5,7 +5,32 @@ export type AccreditedExportScope = "all" | "manual" | "imported";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function filenameForScope(scope: AccreditedExportScope): string {
+/** Lee el nombre del archivo del header `Content-Disposition` enviado por el backend. */
+function filenameFromHeaders(headers: unknown, fallback: string): string {
+  if (!headers || typeof headers !== "object") return fallback;
+  const h = headers as Record<string, unknown>;
+  const raw = h["content-disposition"] ?? h["Content-Disposition"];
+  if (typeof raw !== "string") return fallback;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(raw);
+  if (!match) return fallback;
+  try {
+    return decodeURIComponent(match[1].trim());
+  } catch {
+    return match[1].trim();
+  }
+}
+
+function triggerBlobDownload(data: BlobPart, filename: string): void {
+  const blob = new Blob([data], { type: XLSX_MIME });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function fallbackAccreditedFilename(scope: AccreditedExportScope): string {
   if (scope === "manual") return "acreditados-fuera-de-base.xlsx";
   if (scope === "imported") return "acreditados-desde-base.xlsx";
   return "acreditados-todos.xlsx";
@@ -22,13 +47,7 @@ export async function downloadAccreditedXlsx(eventId: string, scope: AccreditedE
     responseType: "blob",
     params
   });
-  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filenameForScope(scope);
-  a.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(res.data as BlobPart, filenameFromHeaders(res.headers, fallbackAccreditedFilename(scope)));
 }
 
 /** Nómina importada del evento (mismas columnas que acreditados). */
@@ -41,13 +60,8 @@ export async function downloadPeopleBaseXlsx(
     responseType: "blob",
     params: { importedOnly }
   });
-  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = importedOnly ? "base-evento-importada.xlsx" : "nomina-evento-completa.xlsx";
-  a.click();
-  URL.revokeObjectURL(url);
+  const fallback = importedOnly ? "base-evento-importada.xlsx" : "nomina-evento-completa.xlsx";
+  triggerBlobDownload(res.data as BlobPart, filenameFromHeaders(res.headers, fallback));
 }
 
 /** XLSX con hojas ACREDITADOS y FUERA DE BASE (dotación + columnas operativas). */
@@ -55,13 +69,10 @@ export async function downloadEventTwoSheetsXlsx(eventId: string): Promise<void>
   const res = await api.get(`/events/${eventId}/export/two-sheets`, {
     responseType: "blob"
   });
-  const blob = new Blob([res.data as BlobPart], { type: XLSX_MIME });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "acreditacion-2-hojas.xlsx";
-  a.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(
+    res.data as BlobPart,
+    filenameFromHeaders(res.headers, "acreditacion-2-hojas.xlsx")
+  );
 }
 
 /** @deprecated Usar downloadAccreditedXlsx */

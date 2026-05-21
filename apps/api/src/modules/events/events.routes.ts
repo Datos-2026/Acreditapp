@@ -116,6 +116,30 @@ function slugFromEventName(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/** Sufijo legible derivado del nombre del evento para incluir en nombres de archivo. */
+function fileSuffixFromEvent(event: { slug?: string | null; name?: string | null } | null): string {
+  if (!event) return "evento";
+  const base = (event.slug && event.slug.length > 0 ? event.slug : slugFromEventName(event.name ?? "")) || "evento";
+  return base.slice(0, 60) || "evento";
+}
+
+/** Lanza 409 si el evento ya está cerrado/archivado; usado para impedir acreditar después de cerrar. */
+async function assertEventAcceptingAccreditations(eventId: string): Promise<void> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { status: true }
+  });
+  if (!event) {
+    throw new AppError("Evento no encontrado", 404);
+  }
+  if (event.status === EventStatus.closed || event.status === EventStatus.archived) {
+    throw new AppError(
+      "La acreditación del evento está cerrada. Reabrila desde Configuración para volver a acreditar.",
+      409
+    );
+  }
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const where =
@@ -192,23 +216,27 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       : importedOnly ? ({ source: "imported" as const } as const)
       : ({} as const);
 
-    const rows = await prisma.eventPerson.findMany({
-      where: {
-        eventId: req.params.id,
-        status: EventPersonStatus.accredited,
-        ...sourceFilter
-      },
-      include: personExportInclude,
-      orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
-    });
+    const [event, rows] = await Promise.all([
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      prisma.eventPerson.findMany({
+        where: {
+          eventId: req.params.id,
+          status: EventPersonStatus.accredited,
+          ...sourceFilter
+        },
+        include: personExportInclude,
+        orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
+      })
+    ]);
 
     const dataRows = rows.map(mapEventPersonToExportRow);
 
+    const suffix = fileSuffixFromEvent(event);
     const filename = manualOnly
-      ? "acreditados-fuera-de-base.xlsx"
+      ? `acreditados-fuera-de-base__${suffix}.xlsx`
       : importedOnly
-        ? "acreditados-desde-base.xlsx"
-        : "acreditados-todos.xlsx";
+        ? `acreditados-desde-base__${suffix}.xlsx`
+        : `acreditados-todos__${suffix}.xlsx`;
 
     const buffer = buildPersonExportXlsxBuffer("Acreditados", dataRows);
 
@@ -236,14 +264,17 @@ router.get("/:id/export/two-sheets", async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
 
-    const accreditedRows = await prisma.eventPerson.findMany({
-      where: {
-        eventId: req.params.id,
-        status: EventPersonStatus.accredited
-      },
-      include: twoSheetsPersonInclude,
-      orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
-    });
+    const [event, accreditedRows] = await Promise.all([
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      prisma.eventPerson.findMany({
+        where: {
+          eventId: req.params.id,
+          status: EventPersonStatus.accredited
+        },
+        include: twoSheetsPersonInclude,
+        orderBy: [{ accreditedAt: "desc" }, { updatedAt: "desc" }]
+      })
+    ]);
 
     const fueraDeBaseRows = accreditedRows.filter((r) => r.source === "manual");
 
@@ -282,7 +313,10 @@ router.get("/:id/export/two-sheets", async (req, res, next) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
-    res.setHeader("Content-Disposition", 'attachment; filename="acreditacion-2-hojas.xlsx"');
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="acreditacion-2-hojas__${fileSuffixFromEvent(event)}.xlsx"`
+    );
     res.send(buffer);
   } catch (error) {
     next(error);
@@ -295,17 +329,23 @@ router.get("/:id/export/people", async (req, res, next) => {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
     const importedOnly = String(req.query.importedOnly ?? "true") === "true";
 
-    const rows = await prisma.eventPerson.findMany({
-      where: {
-        eventId: req.params.id,
-        ...(importedOnly ? { source: "imported" as const } : {})
-      },
-      include: personExportInclude,
-      orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
-    });
+    const [event, rows] = await Promise.all([
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      prisma.eventPerson.findMany({
+        where: {
+          eventId: req.params.id,
+          ...(importedOnly ? { source: "imported" as const } : {})
+        },
+        include: personExportInclude,
+        orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
+      })
+    ]);
 
     const dataRows = rows.map(mapEventPersonToExportRow);
-    const filename = importedOnly ? "base-evento-importada.xlsx" : "nomina-evento-completa.xlsx";
+    const suffix = fileSuffixFromEvent(event);
+    const filename = importedOnly
+      ? `base-evento-importada__${suffix}.xlsx`
+      : `nomina-evento-completa__${suffix}.xlsx`;
     const buffer = buildPersonExportXlsxBuffer("BASE", dataRows);
 
     await createAuditLog({
@@ -775,6 +815,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      await assertEventAcceptingAccreditations(req.params.id);
       const cuilNormalized = normalizeCuil(req.body.cuilNormalized);
       if (!isValidCuil(cuilNormalized)) throw new AppError("CUIL inválido", 400);
 
@@ -856,6 +897,7 @@ router.post(
 router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), validateBody(manualPersonSchema), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await assertEventAcceptingAccreditations(req.params.id);
     const doc = parseManualDocument(req.body.cuilRaw);
     const existing = await prisma.person.findFirst({
       where: {
@@ -924,6 +966,7 @@ router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "AC
 router.post("/:id/people/:eventPersonId/accredit", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await assertEventAcceptingAccreditations(req.params.id);
     const current = await prisma.eventPerson.findUniqueOrThrow({
       where: { id: req.params.eventPersonId }
     });
@@ -955,6 +998,7 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles("SUPERADMIN", "A
 router.post("/:id/people/:eventPersonId/reaccredit", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, res, next) => {
   try {
     await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await assertEventAcceptingAccreditations(req.params.id);
     const reason = z.string().min(5).parse(req.body?.reason);
     const eventPerson = await prisma.eventPerson.findUniqueOrThrow({
       where: { id: req.params.eventPersonId }

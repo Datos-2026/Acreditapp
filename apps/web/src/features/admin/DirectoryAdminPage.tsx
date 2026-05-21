@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DirectoryStatsDto } from "@gcba/shared";
 import { api } from "../../lib/api";
 import { Icon } from "../../components/Icon";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
 
 function errMessage(err: unknown, fallback: string): string {
   const ax = err as { response?: { data?: { message?: string } } };
@@ -121,10 +121,13 @@ export function DirectoryAdminPage() {
         </div>
       </article>
 
-      <ConfirmDialog
+      <ConfirmTypeDialog
         open={showConfirm}
         title="Reemplazar directorio GCBA"
-        message="Esta acción borra todos los registros actuales del directorio y los reemplaza por el archivo seleccionado. ¿Continuar?"
+        message="Esta acción borra todos los registros actuales del directorio y los reemplaza por el archivo seleccionado. No se puede deshacer."
+        requiredText="REEMPLAZAR"
+        confirmLabel="Reemplazar directorio"
+        danger
         onCancel={() => setShowConfirm(false)}
         onConfirm={() => {
           if (pendingFile) uploadMutation.mutate(pendingFile);

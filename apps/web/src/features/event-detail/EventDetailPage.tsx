@@ -24,6 +24,7 @@ import { ActivityTimeline } from "../../components/ActivityTimeline";
 import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
 import type { DirectoryPersonDto, DirectorySearchResult } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
@@ -132,6 +133,8 @@ export function EventDetailPage() {
   const [bulkDeleteScope, setBulkDeleteScope] = useState<
     "all" | "accredited" | "accredited_imported" | null
   >(null);
+  const [showCloseEvent, setShowCloseEvent] = useState(false);
+  const [showReopenEvent, setShowReopenEvent] = useState(false);
   const navigate = useNavigate();
   const canManageEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
   const editEventPath = `/eventos/${id}/editar`;
@@ -453,6 +456,27 @@ export function EventDetailPage() {
     }
   });
 
+  const eventStatus = (eventQuery.data?.status ?? "draft") as "draft" | "active" | "closed" | "archived";
+  const isAccreditationClosed = eventStatus === "closed" || eventStatus === "archived";
+
+  const setEventStatusMutation = useMutation({
+    mutationFn: async (status: "active" | "closed") => {
+      const { data } = await api.patch(`/events/${id}`, { status });
+      return data;
+    },
+    onSuccess: (_data, status) => {
+      setShowCloseEvent(false);
+      setShowReopenEvent(false);
+      setUiNotice(
+        status === "closed"
+          ? "Acreditación cerrada. Las personas ya no pueden ser acreditadas."
+          : "Acreditación reabierta. Ya se puede volver a acreditar."
+      );
+      void queryClient.invalidateQueries({ queryKey: ["event", id] });
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+    }
+  });
+
   if (eventQuery.isLoading) return <div className="page-state">Cargando evento...</div>;
 
   return (
@@ -465,12 +489,42 @@ export function EventDetailPage() {
             </p>
             <h1 className="display-sm">{eventQuery.data?.name}</h1>
             <p className="lead">{eventQuery.data?.description ?? "Sin descripción"}</p>
+            {isAccreditationClosed ? (
+              <p
+                className="message-warning"
+                style={{ marginTop: "0.75rem", marginBottom: 0, fontWeight: 700 }}
+              >
+                Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar.
+              </p>
+            ) : null}
             {canManageEvent ? (
               <div className="row gap event-detail-header__manage" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
                 <Link to={editEventPath} className="btn btn-secondary">
                   <Icon name="edit" />
                   Editar evento
                 </Link>
+                {isAccreditationClosed ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowReopenEvent(true)}
+                    disabled={setEventStatusMutation.isPending}
+                  >
+                    <Icon name="lock_open" />
+                    Reabrir acreditación
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ color: "var(--error)" }}
+                    onClick={() => setShowCloseEvent(true)}
+                    disabled={setEventStatusMutation.isPending}
+                  >
+                    <Icon name="lock" />
+                    CERRAR ACREDITACIÓN
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -601,20 +655,26 @@ export function EventDetailPage() {
             !directoryMatch ? (
               <div style={{ marginTop: "1rem" }}>
                 <p className="message-warning">No hay coincidencias en la base para esta búsqueda.</p>
-                <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ marginTop: "0.5rem" }}
-                    onClick={() => {
-                      setLastSearchedCuil(debouncedSearch.replace(/\D/g, ""));
-                      setUiNotice(null);
-                      setShowFueraDeBaseModal(true);
-                    }}
-                  >
-                    Acreditar fuera de base
-                  </button>
-                </RoleGuard>
+                {isAccreditationClosed ? (
+                  <p className="message-warning" style={{ marginTop: "0.5rem" }}>
+                    La acreditación de este evento está cerrada.
+                  </p>
+                ) : (
+                  <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ marginTop: "0.5rem" }}
+                      onClick={() => {
+                        setLastSearchedCuil(debouncedSearch.replace(/\D/g, ""));
+                        setUiNotice(null);
+                        setShowFueraDeBaseModal(true);
+                      }}
+                    >
+                      Acreditar fuera de base
+                    </button>
+                  </RoleGuard>
+                )}
               </div>
             ) : null}
           </div>
@@ -633,15 +693,21 @@ export function EventDetailPage() {
                 <div className="accred-detail__head">
                   <h3 className="accred-detail__name">{`${directoryMatch.lastName}, ${directoryMatch.firstName}`}</h3>
                   <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
-                    <button
-                      className="btn btn-danger"
-                      type="button"
-                      disabled={manualFromDirectoryMutation.isPending}
-                      onClick={() => manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized)}
-                    >
-                      <Icon name="verified" />
-                      {manualFromDirectoryMutation.isPending ? "Procesando…" : "Acreditar fuera de base"}
-                    </button>
+                    {isAccreditationClosed ? (
+                      <span className="status-pill" style={{ background: "var(--warning-container)" }}>
+                        Acreditación cerrada
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-danger"
+                        type="button"
+                        disabled={manualFromDirectoryMutation.isPending}
+                        onClick={() => manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized)}
+                      >
+                        <Icon name="verified" />
+                        {manualFromDirectoryMutation.isPending ? "Procesando…" : "Acreditar fuera de base"}
+                      </button>
+                    )}
                   </RoleGuard>
                 </div>
                 <div className="accred-detail__rows">
@@ -661,10 +727,16 @@ export function EventDetailPage() {
                 <div className="accred-detail__head">
                   <h3 className="accred-detail__name">{`${selected.person.lastName}, ${selected.person.firstName}`}</h3>
                   {selected?.status === "pending" ? (
-                    <button className="btn btn-danger" onClick={() => setShowConfirm(true)} type="button">
-                      <Icon name="verified" />
-                      Acreditar
-                    </button>
+                    isAccreditationClosed ? (
+                      <span className="status-pill" style={{ background: "var(--warning-container)" }}>
+                        Acreditación cerrada
+                      </span>
+                    ) : (
+                      <button className="btn btn-danger" onClick={() => setShowConfirm(true)} type="button">
+                        <Icon name="verified" />
+                        Acreditar
+                      </button>
+                    )
                   ) : (
                     <span className="status-pill status-pill--active">Acreditado</span>
                   )}
@@ -1250,10 +1322,12 @@ export function EventDetailPage() {
         </RoleGuard>
       ) : null}
 
-      <ConfirmDialog
+      <ConfirmTypeDialog
         open={showDeleteEvent}
         title="Eliminar evento"
-        message={`¿Eliminar "${eventQuery.data?.name ?? "este evento"}"? Se borrarán personas del evento, importaciones e informes. No se puede deshacer.`}
+        message={`Vas a eliminar el evento "${eventQuery.data?.name ?? ""}". Se borrarán personas del evento, importaciones e informes. No se puede deshacer.`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setShowDeleteEvent(false)}
         onConfirm={() => deleteEventMutation.mutate()}
         confirmLabel="Eliminar evento"
@@ -1268,32 +1342,57 @@ export function EventDetailPage() {
         confirmLabel="Quitar"
         danger
       />
-      <ConfirmDialog
+      <ConfirmTypeDialog
         open={bulkDeleteScope === "all"}
         title="Vaciar toda la base del evento"
-        message="Se eliminarán todas las personas de este evento (pendientes y acreditadas, importadas y manuales). No se puede deshacer."
+        message={`Vas a vaciar TODA la base del evento "${eventQuery.data?.name ?? ""}". Se eliminarán pendientes y acreditadas, importadas y manuales. No se puede deshacer.`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setBulkDeleteScope(null)}
         onConfirm={() => bulkDeletePeopleMutation.mutate("all")}
         confirmLabel="Vaciar toda la base"
         danger
       />
-      <ConfirmDialog
+      <ConfirmTypeDialog
         open={bulkDeleteScope === "accredited"}
         title="Vaciar acreditados"
-        message="Se eliminarán del evento todas las personas acreditadas (importadas y fuera de base). Las pendientes en la base se mantienen."
+        message={`Vas a eliminar TODOS los acreditados del evento "${eventQuery.data?.name ?? ""}" (importadas y fuera de base). Las pendientes en la base se mantienen.`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setBulkDeleteScope(null)}
         onConfirm={() => bulkDeletePeopleMutation.mutate("accredited")}
         confirmLabel="Vaciar acreditados"
         danger
       />
-      <ConfirmDialog
+      <ConfirmTypeDialog
         open={bulkDeleteScope === "accredited_imported"}
         title="Vaciar acreditados desde base"
-        message="Se eliminarán del evento solo los acreditados que venían de la planilla importada (esta lista)."
+        message={`Vas a eliminar los acreditados que venían de la planilla importada del evento "${eventQuery.data?.name ?? ""}".`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setBulkDeleteScope(null)}
         onConfirm={() => bulkDeletePeopleMutation.mutate("accredited_imported")}
         confirmLabel="Vaciar lista"
         danger
+      />
+      <ConfirmTypeDialog
+        open={showCloseEvent}
+        title="Cerrar acreditación del evento"
+        message={`Una vez cerrada la acreditación, no se podrán registrar nuevas acreditaciones para "${eventQuery.data?.name ?? ""}". Sí se podrá consultar y exportar. Podés reabrirla más tarde.`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
+        onCancel={() => setShowCloseEvent(false)}
+        onConfirm={() => setEventStatusMutation.mutate("closed")}
+        confirmLabel="CERRAR ACREDITACIÓN"
+        danger
+      />
+      <ConfirmDialog
+        open={showReopenEvent}
+        title="Reabrir acreditación"
+        message="Se vuelve a permitir acreditar personas en este evento."
+        onCancel={() => setShowReopenEvent(false)}
+        onConfirm={() => setEventStatusMutation.mutate("active")}
+        confirmLabel="Reabrir"
       />
     </section>
   );

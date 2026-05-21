@@ -48,7 +48,9 @@ app.use(
       // No pasar Error: en cors eso dispara el errorHandler y devuelve 500.
       callback(null, false);
     },
-    credentials: true
+    credentials: true,
+    // Exponer Content-Disposition para que el front pueda leer el nombre de archivo en descargas.
+    exposedHeaders: ["Content-Disposition"]
   })
 );
 app.use(cookieParser());
