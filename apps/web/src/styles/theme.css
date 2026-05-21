@@ -1792,8 +1792,12 @@ a.tab-btn--informe {
 
 .search-cuil-form__icon {
   position: absolute;
-  right: 0;
-  bottom: 1.5rem;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
 }
 
