@@ -1725,6 +1725,32 @@ a.tab-btn--informe {
   pointer-events: none;
 }
 
+.search-cuil-form__clear {
+  position: absolute;
+  right: 3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--surface-container-high, #2a2a2a);
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
+  border-radius: 999px;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-cuil-form__clear:hover,
+.search-cuil-form__clear:focus-visible {
+  background: var(--error-container, #5e1410);
+  color: var(--on-error-container, #ffd9d6);
+  outline: none;
+}
+
 .search-cuil-form__hint {
   color: var(--on-surface-variant);
   font-size: 0.9375rem;

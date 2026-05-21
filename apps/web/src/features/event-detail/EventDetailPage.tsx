@@ -303,6 +303,35 @@ export function EventDetailPage() {
     }
     return [];
   }, [liveRows, exactEventPerson, isExactDocumentSearch]);
+
+  /**
+   * Al cambiar la búsqueda, la persona previamente seleccionada puede no estar más
+   * entre los resultados (e incluso podría aparecer una persona del directorio GCBA).
+   * Limpiamos el detalle anterior para evitar que se mezcle con la nueva búsqueda.
+   */
+  useEffect(() => {
+    if (!selected) return;
+    if (debouncedSearch.length < 2) {
+      setSelected(null);
+      return;
+    }
+    if (directoryMatch) {
+      setSelected(null);
+      return;
+    }
+    const stillVisible = displayRows.some((row) => row.id === selected.id);
+    if (!stillVisible) setSelected(null);
+  }, [debouncedSearch, directoryMatch, displayRows, selected]);
+
+  /** Limpia por completo la búsqueda y el detalle de la pestaña Acreditar. */
+  const clearLiveSearch = () => {
+    setLiveSearchInput("");
+    setDebouncedSearch("");
+    setLastSearchedCuil("");
+    setSelected(null);
+    setSearchedOnce(false);
+    setUiNotice(null);
+  };
   const accreditMutation = useMutation({
     mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
     onSuccess: () => {
@@ -572,12 +601,61 @@ export function EventDetailPage() {
                   setSearchedOnce(false);
                   setLiveSearchInput(e.target.value);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    clearLiveSearch();
+                    return;
+                  }
+                  if (e.key !== "Enter") return;
+                  if (isAccreditationClosed) return;
+                  if (debouncedSearch.length < 2) return;
+                  if (livePeopleQuery.isLoading || exactCuilQuery.isLoading) return;
+
+                  if (
+                    directoryMatch &&
+                    displayRows.length === 0 &&
+                    !manualFromDirectoryMutation.isPending
+                  ) {
+                    e.preventDefault();
+                    manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized);
+                    return;
+                  }
+
+                  if (displayRows.length === 1) {
+                    e.preventDefault();
+                    const only = displayRows[0] as EventPerson;
+                    setSelected(only);
+                    setSearchedOnce(true);
+                    setLastSearchedCuil(only.person.cuilNormalized);
+                    if (only.status === "pending" && !accreditMutation.isPending) {
+                      // Mismo flujo que el click en el botón rojo: confirmación + acreditación.
+                      setShowConfirm(true);
+                    }
+                  }
+                }}
               />
+              {liveSearchInput.length > 0 ? (
+                <button
+                  type="button"
+                  className="search-cuil-form__clear"
+                  aria-label="Borrar búsqueda"
+                  title="Borrar búsqueda (Esc)"
+                  onClick={() => {
+                    clearLiveSearch();
+                    const input = document.getElementById("live-cuil-search") as HTMLInputElement | null;
+                    input?.focus();
+                  }}
+                >
+                  <Icon name="close" style={{ fontSize: "1.75rem" }} />
+                </button>
+              ) : null}
               <div className="search-cuil-form__icon">
                 <Icon name="search" style={{ fontSize: "2.5rem", color: "var(--secondary-container)" }} />
               </div>
             </div>
-            <p className="search-cuil-form__hint search-help">Buscá y seleccioná una persona de la base para acreditar.</p>
+            <p className="search-cuil-form__hint search-help">
+              Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo).
+            </p>
           </section>
         </section>
       ) : null}
