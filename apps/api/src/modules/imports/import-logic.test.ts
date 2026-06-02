@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyImportMappedValue, normalizeImportSheetHeader } from "./import-logic";
+import {
+  applyImportMappedValue,
+  normalizeImportCanonical,
+  normalizeImportSheetHeader,
+  parseAyn,
+  parseNombreApellido
+} from "./import-logic";
 
 describe("normalizeImportSheetHeader", () => {
   it("unifica barra ancha tipo Excel en nombre/s y apellido/s", () => {
@@ -21,5 +27,63 @@ describe("applyImportMappedValue", () => {
     applyImportMappedValue(c, "empresa", "Sec A");
     applyImportMappedValue(c, "empresa", "Dir B");
     expect(c.empresa).toBe("Sec A · Dir B");
+  });
+});
+
+describe("parseAyn (Apellido y Nombre)", () => {
+  it("respeta el formato canónico con coma", () => {
+    expect(parseAyn("PEREZ, JUAN")).toEqual({ apellido: "PEREZ", nombre: "JUAN" });
+  });
+
+  it("sin coma toma el primer token como apellido", () => {
+    expect(parseAyn("PEREZ JUAN CARLOS")).toEqual({
+      apellido: "PEREZ",
+      nombre: "JUAN CARLOS"
+    });
+  });
+});
+
+describe("parseNombreApellido (Nombre y Apellido)", () => {
+  it("toma el último token como apellido y el resto como nombres", () => {
+    expect(parseNombreApellido("GUSTAVO BUSTAMANTE")).toEqual({
+      nombre: "GUSTAVO",
+      apellido: "BUSTAMANTE"
+    });
+    expect(parseNombreApellido("MARIA JOSE BUSTAMANTE")).toEqual({
+      nombre: "MARIA JOSE",
+      apellido: "BUSTAMANTE"
+    });
+  });
+
+  it("si hay coma, asume formato canónico Apellido, Nombre", () => {
+    expect(parseNombreApellido("BUSTAMANTE, GUSTAVO")).toEqual({
+      apellido: "BUSTAMANTE",
+      nombre: "GUSTAVO"
+    });
+  });
+
+  it("token único cae como nombre", () => {
+    expect(parseNombreApellido("GUSTAVO")).toEqual({ nombre: "GUSTAVO" });
+  });
+});
+
+describe("normalizeImportCanonical con header 'Nombre y Apellido'", () => {
+  it("derivar nombre y apellido desde nombreApellido cuando no vienen separados", () => {
+    const result = normalizeImportCanonical({
+      nombreApellido: "GUSTAVO BUSTAMANTE",
+      cuil: "20181226227"
+    });
+    expect(result.nombre).toBe("GUSTAVO");
+    expect(result.apellido).toBe("BUSTAMANTE");
+  });
+
+  it("no pisa nombre/apellido cuando ya vienen explícitos", () => {
+    const result = normalizeImportCanonical({
+      nombre: "Juan",
+      apellido: "Pérez",
+      nombreApellido: "Otra Cosa"
+    });
+    expect(result.nombre).toBe("Juan");
+    expect(result.apellido).toBe("Pérez");
   });
 });

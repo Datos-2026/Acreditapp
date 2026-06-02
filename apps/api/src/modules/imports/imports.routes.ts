@@ -28,6 +28,7 @@ const canonicalFields = [
   "nombre",
   "apellido",
   "nombreCompleto",
+  "nombreApellido",
   "email",
   "telefono",
   "empresa",
@@ -204,6 +205,14 @@ function autoDetectMapping(headers: string[]) {
     }
     if (normalized === "ayn" || normalized.includes("apellido y nombre")) {
       map[header] = "nombreCompleto";
+      return;
+    }
+    /**
+     * "Nombre y Apellido" (orden inverso): se separa con `parseNombreApellido`
+     * tomando el último token como apellido y el resto como nombres.
+     */
+    if (normalized.includes("nombre y apellido")) {
+      map[header] = "nombreApellido";
       return;
     }
     if (

@@ -29,6 +29,7 @@ export function applyImportMappedValue(canonical: Record<string, unknown>, targe
     "telefono",
     "cargo",
     "nombreCompleto",
+    "nombreApellido",
     "notes"
   ]);
   if (noEmptyOverwrite.has(target) && !s) {
@@ -48,7 +49,11 @@ export function applyImportMappedValue(canonical: Record<string, unknown>, targe
   canonical[target] = s;
 }
 
-function parseAyn(value: string): { nombre?: string; apellido?: string } {
+/**
+ * Parsea un nombre completo en formato "Apellido(s) Nombre(s)" (típico del header
+ * "Apellido y Nombre" / "AYN"). Si hay coma, siempre apellido va antes.
+ */
+export function parseAyn(value: string): { nombre?: string; apellido?: string } {
   const clean = value.trim();
   if (!clean) return {};
 
@@ -68,18 +73,50 @@ function parseAyn(value: string): { nombre?: string; apellido?: string } {
   };
 }
 
+/**
+ * Parsea un nombre completo en formato "Nombre(s) Apellido" (header "Nombre y
+ * Apellido"): el último token se toma como apellido y el resto como nombres.
+ * Si hay coma, asume formato canónico "Apellido, Nombre".
+ */
+export function parseNombreApellido(value: string): { nombre?: string; apellido?: string } {
+  const clean = value.trim();
+  if (!clean) return {};
+
+  if (clean.includes(",")) {
+    const [lastNameRaw, firstNameRaw] = clean.split(",", 2);
+    return {
+      apellido: lastNameRaw.trim() || undefined,
+      nombre: firstNameRaw.trim() || undefined
+    };
+  }
+
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return { nombre: parts[0] };
+  return {
+    nombre: parts.slice(0, -1).join(" "),
+    apellido: parts[parts.length - 1]
+  };
+}
+
 export function normalizeImportCanonical(canonical: Record<string, unknown>): Record<string, unknown> {
   const normalized = { ...canonical };
 
   const nombre = String(normalized.nombre ?? "").trim();
   const apellido = String(normalized.apellido ?? "").trim();
   const ayn = String(normalized.nombreCompleto ?? "").trim();
+  const nyc = String(normalized.nombreApellido ?? "").trim();
   if (!ayn && (nombre || apellido)) {
     normalized.nombreCompleto = [apellido, nombre].filter(Boolean).join(", ");
   }
 
   if ((!normalized.nombre || !normalized.apellido) && ayn) {
     const parsed = parseAyn(ayn);
+    if (!normalized.nombre && parsed.nombre) normalized.nombre = parsed.nombre;
+    if (!normalized.apellido && parsed.apellido) normalized.apellido = parsed.apellido;
+  }
+
+  if ((!normalized.nombre || !normalized.apellido) && nyc) {
+    const parsed = parseNombreApellido(nyc);
     if (!normalized.nombre && parsed.nombre) normalized.nombre = parsed.nombre;
     if (!normalized.apellido && parsed.apellido) normalized.apellido = parsed.apellido;
   }
