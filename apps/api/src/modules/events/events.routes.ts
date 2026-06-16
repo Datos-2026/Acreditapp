@@ -377,9 +377,19 @@ const GROUP_FIELD_LABEL: Record<GroupableDimension, string> = {
 
 const NO_DATA_GROUP = "Sin dato";
 
+/**
+ * Toma solo el primer nivel cuando el valor viene compuesto, p. ej.
+ * "Jefatura de Gobierno · Secretaría de Comunicación · No corresponde" → "Jefatura de Gobierno".
+ * Separadores soportados: · (middle dot), • (bullet) y | (pipe).
+ */
+function firstSegment(value: string): string {
+  const first = value.split(/\s*[·•|]\s*/)[0] ?? value;
+  return first.trim();
+}
+
 function groupKeyFor(dimension: GroupableDimension, row: EventPersonExportRow): string {
   const raw = dimension === "ministerio" ? row.person.company : row.person.position;
-  const value = (raw ?? "").trim();
+  const value = firstSegment((raw ?? "").trim());
   return value.length > 0 ? value : NO_DATA_GROUP;
 }
 
