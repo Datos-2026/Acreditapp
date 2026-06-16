@@ -75,5 +75,27 @@ export async function downloadEventTwoSheetsXlsx(eventId: string): Promise<void>
   );
 }
 
+/** Dimensión por la que se agrupan las personas en el panel de descargas. */
+export type GroupedExportDimension = "ministerio" | "rol";
+/** `accredited` = solo acreditados; `all` = todas las personas del evento. */
+export type GroupedExportScope = "accredited" | "all";
+
+/** XLSX con una hoja por grupo (ministerio o ROL) + hoja Resumen. */
+export async function downloadGroupedXlsx(
+  eventId: string,
+  by: GroupedExportDimension,
+  scope: GroupedExportScope = "accredited"
+): Promise<void> {
+  const res = await api.get(`/events/${eventId}/export/grouped`, {
+    responseType: "blob",
+    params: { by, scope }
+  });
+  const scopeLabel = scope === "all" ? "personas" : "acreditados";
+  triggerBlobDownload(
+    res.data as BlobPart,
+    filenameFromHeaders(res.headers, `${scopeLabel}-por-${by}.xlsx`)
+  );
+}
+
 /** @deprecated Usar downloadAccreditedXlsx */
 export const downloadAccreditedCsv = downloadAccreditedXlsx;

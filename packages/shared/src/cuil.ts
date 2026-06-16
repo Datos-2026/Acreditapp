@@ -22,6 +22,18 @@ export function isValidCuil(cuil: string): boolean {
   return verifier === digits[10];
 }
 
+/**
+ * Extrae el DNI (8 dígitos centrales) de un CUIL de 11 dígitos, quitando ceros a la izquierda.
+ * Útil para emparejar a una misma persona cuando el prefijo de género (20/23/24/27)
+ * o el dígito verificador difieren entre la base del evento y el directorio.
+ */
+export function dniFromCuil(cuil: string): string | null {
+  const normalized = normalizeCuil(cuil);
+  if (normalized.length !== 11) return null;
+  const dni = normalized.slice(2, 10).replace(/^0+/, "");
+  return dni.length >= 6 ? dni : null;
+}
+
 export type ManualDocument = {
   cuilNormalized: string;
   dni: string | null;

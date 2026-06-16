@@ -2538,3 +2538,86 @@ a.tab-btn--informe {
     margin-top: 0.4rem;
   }
 }
+
+/* ===== Panel de descargas ===== */
+.downloads-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.downloads-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.download-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.download-card--muted {
+  opacity: 0.85;
+  border-style: dashed;
+}
+
+.download-breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.download-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--surface-variant, rgba(0, 0, 0, 0.04));
+}
+
+.download-breakdown__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.download-breakdown__count {
+  font-weight: 800;
+  color: var(--primary, #1565c0);
+  flex-shrink: 0;
+}
+
+.download-breakdown__more {
+  background: transparent !important;
+  font-style: italic;
+  color: var(--on-surface-variant);
+  justify-content: flex-start !important;
+}
+
+.seg-control {
+  display: inline-flex;
+  border: 1px solid var(--outline, rgba(0, 0, 0, 0.15));
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.seg-control__btn {
+  border: none;
+  background: transparent;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+}
+
+.seg-control__btn.active {
+  background: var(--primary, #1565c0);
+  color: #fff;
+}

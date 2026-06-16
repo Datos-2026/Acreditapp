@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import type { EventReportAiAnalysis } from "@gcba/shared";
-import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil } from "@gcba/shared";
+import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil, dniFromCuil } from "@gcba/shared";
 import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
@@ -354,6 +354,153 @@ router.get("/:id/export/people", async (req, res, next) => {
       entityType: "event",
       entityId: req.params.id,
       metadata: { importedOnly, rows: rows.length, format: "xlsx" }
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+type GroupableDimension = "ministerio" | "rol";
+type GroupScope = "accredited" | "all";
+
+const GROUP_FIELD_LABEL: Record<GroupableDimension, string> = {
+  ministerio: "Ministerio",
+  rol: "ROL"
+};
+
+const NO_DATA_GROUP = "Sin dato";
+
+function groupKeyFor(dimension: GroupableDimension, row: EventPersonExportRow): string {
+  const raw = dimension === "ministerio" ? row.person.company : row.person.position;
+  const value = (raw ?? "").trim();
+  return value.length > 0 ? value : NO_DATA_GROUP;
+}
+
+/** Nombre de hoja válido para Excel (máx 31, sin caracteres reservados) y único dentro del libro. */
+function safeSheetName(raw: string, used: Set<string>): string {
+  let base = raw.replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, 28);
+  if (base.length === 0) base = "Grupo";
+  let candidate = base;
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    const suffix = ` ${n}`;
+    candidate = `${base.slice(0, 28 - suffix.length)}${suffix}`;
+    n += 1;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+async function loadGroupableRows(eventId: string, scope: GroupScope): Promise<EventPersonExportRow[]> {
+  return prisma.eventPerson.findMany({
+    where: {
+      eventId,
+      ...(scope === "accredited" ? { status: EventPersonStatus.accredited } : {})
+    },
+    include: personExportInclude,
+    orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
+  });
+}
+
+/** Conteos por dimensión (ministerio/ROL) para previsualizar el panel de descargas. */
+router.get("/:id/people/breakdown", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const by = (String(req.query.by ?? "ministerio") as GroupableDimension);
+    const scope = (String(req.query.scope ?? "accredited") as GroupScope);
+    if (by !== "ministerio" && by !== "rol") {
+      res.status(400).json({ message: "Parámetro by inválido (ministerio | rol)" });
+      return;
+    }
+
+    const rows = await loadGroupableRows(req.params.id, scope === "all" ? "all" : "accredited");
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const key = groupKeyFor(by, row);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    const groups = [...counts.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key, "es"));
+
+    res.json({ by, scope: scope === "all" ? "all" : "accredited", total: rows.length, groups });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** XLSX con una hoja por grupo (ministerio o ROL) + hoja Resumen con los conteos. */
+router.get("/:id/export/grouped", async (req, res, next) => {
+  try {
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    const by = (String(req.query.by ?? "ministerio") as GroupableDimension);
+    const scope = (String(req.query.scope ?? "accredited") as GroupScope);
+    if (by !== "ministerio" && by !== "rol") {
+      res.status(400).json({ message: "Parámetro by inválido (ministerio | rol)" });
+      return;
+    }
+    const normalizedScope: GroupScope = scope === "all" ? "all" : "accredited";
+
+    const [event, rows] = await Promise.all([
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      loadGroupableRows(req.params.id, normalizedScope)
+    ]);
+
+    const groups = new Map<string, EventPersonExportRow[]>();
+    for (const row of rows) {
+      const key = groupKeyFor(by, row);
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(row);
+      else groups.set(key, [row]);
+    }
+
+    const sortedGroups = [...groups.entries()].sort(
+      (a, b) => (b[1].length - a[1].length) || a[0].localeCompare(b[0], "es")
+    );
+
+    const workbook = XLSX.utils.book_new();
+    const usedSheetNames = new Set<string>();
+
+    const summaryAoa: (string | number)[][] = [
+      [GROUP_FIELD_LABEL[by], "Cantidad"],
+      ...sortedGroups.map(([name, gr]) => [name, gr.length] as (string | number)[]),
+      ["TOTAL", rows.length]
+    ];
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet(summaryAoa),
+      safeSheetName("Resumen", usedSheetNames)
+    );
+
+    for (const [name, gr] of sortedGroups) {
+      const aoa = [Array.from(PERSON_EXPORT_HEADER), ...gr.map(mapEventPersonToExportRow)];
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet(aoa),
+        safeSheetName(name, usedSheetNames)
+      );
+    }
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const suffix = fileSuffixFromEvent(event);
+    const scopeLabel = normalizedScope === "all" ? "personas" : "acreditados";
+    const filename = `${scopeLabel}-por-${by}__${suffix}.xlsx`;
+
+    await createAuditLog({
+      req,
+      action: "event.export.grouped",
+      entityType: "event",
+      entityId: req.params.id,
+      metadata: { by, scope: normalizedScope, groups: sortedGroups.length, rows: rows.length, format: "xlsx" }
     });
 
     res.setHeader(
@@ -766,7 +913,12 @@ router.get("/:id/people/search", async (req, res, next) => {
     let personWhere: Prisma.PersonWhereInput;
     if (digits.length === 11) {
       if (!isValidCuil(digits)) throw new AppError("CUIL inválido", 400);
-      personWhere = { cuilNormalized: digits };
+      // También buscamos por el DNI embebido en el CUIL: una misma persona puede estar
+      // en la base del evento con un prefijo de género o verificador distinto al del CUIL tipeado.
+      const dni = dniFromCuil(digits);
+      personWhere = dni
+        ? { OR: [{ cuilNormalized: digits }, { dni }] }
+        : { cuilNormalized: digits };
     } else if (digits.length >= 6 && digits.length <= 8) {
       personWhere = { dni: digits };
     } else {
@@ -786,8 +938,13 @@ router.get("/:id/people/search", async (req, res, next) => {
       return;
     }
 
+    const directoryDni = digits.length === 11 ? dniFromCuil(digits) : digits;
     const directoryWhere: Prisma.DirectoryPersonWhereInput =
-      digits.length === 11 ? { cuilNormalized: digits } : { dni: digits };
+      digits.length === 11
+        ? directoryDni
+          ? { OR: [{ cuilNormalized: digits }, { dni: directoryDni }] }
+          : { cuilNormalized: digits }
+        : { dni: digits };
 
     const directoryPerson = await prisma.directoryPerson.findFirst({
       where: directoryWhere
@@ -870,7 +1027,8 @@ router.post(
             personId: person.id
           }
         },
-        update: { source: "manual" },
+        // No degradamos a "manual" a quien ya está en la base importada del evento.
+        update: {},
         create: {
           eventId: req.params.id,
           personId: person.id,

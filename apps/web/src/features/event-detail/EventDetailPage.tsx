@@ -29,6 +29,7 @@ import type { DirectoryPersonDto, DirectorySearchResult } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
   downloadEventTwoSheetsXlsx,
+  downloadGroupedXlsx,
   downloadPeopleBaseXlsx
 } from "../../lib/downloadExport";
 import { Icon } from "../../components/Icon";
@@ -95,6 +96,7 @@ const tabs = [
   "Personas",
   "Acreditados",
   "Fuera de base",
+  "Descargas",
   "Importar XLSX",
   "Actividad",
   "Dashboard",
@@ -106,6 +108,7 @@ const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
   Personas: "personas",
   Acreditados: "acreditados",
   "Fuera de base": "fuera-de-base",
+  Descargas: "descargas",
   "Importar XLSX": "importar",
   Actividad: "actividad",
   Dashboard: "metricas",
@@ -117,6 +120,7 @@ const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
   personas: "Personas",
   acreditados: "Acreditados",
   "fuera-de-base": "Fuera de base",
+  descargas: "Descargas",
   importar: "Importar XLSX",
   actividad: "Actividad",
   metricas: "Dashboard",
@@ -150,6 +154,8 @@ export function EventDetailPage() {
   >(null);
   const [showCloseEvent, setShowCloseEvent] = useState(false);
   const [showReopenEvent, setShowReopenEvent] = useState(false);
+  const [downloadScope, setDownloadScope] = useState<"accredited" | "all">("accredited");
+  const [downloadBusy, setDownloadBusy] = useState<string | null>(null);
   const navigate = useNavigate();
   const canManageEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
   const editEventPath = `/eventos/${id}/editar`;
@@ -252,6 +258,27 @@ export function EventDetailPage() {
         `/events/${id}/people?status=accredited&source=manual&page=1&pageSize=5000`
       )).data as { total: number; rows: AccreditedRow[] },
     enabled: tab === "Fuera de base"
+  });
+
+  type BreakdownResult = {
+    by: "ministerio" | "rol";
+    scope: "accredited" | "all";
+    total: number;
+    groups: Array<{ key: string; count: number }>;
+  };
+
+  const ministerioBreakdownQuery = useQuery({
+    queryKey: ["breakdown", id, "ministerio", downloadScope],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people/breakdown?by=ministerio&scope=${downloadScope}`)).data as BreakdownResult,
+    enabled: tab === "Descargas"
+  });
+
+  const rolBreakdownQuery = useQuery({
+    queryKey: ["breakdown", id, "rol", downloadScope],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people/breakdown?by=rol&scope=${downloadScope}`)).data as BreakdownResult,
+    enabled: tab === "Descargas"
   });
 
   type LiveSearchRow = {
@@ -1171,6 +1198,162 @@ export function EventDetailPage() {
               ]}
             />
           )}
+        </div>
+      ) : null}
+
+      {tab === "Descargas" ? (
+        <div className="downloads-panel">
+          <div className="card">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <h3 className="display-sm" style={{ fontSize: "1.35rem", margin: "0 0 0.35rem" }}>
+                  Panel de descargas
+                </h3>
+                <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9375rem", maxWidth: "60ch" }}>
+                  Exportá personas separadas por ministerio o por ROL. Cada archivo trae una hoja por grupo más
+                  una hoja "Resumen" con los totales.
+                </p>
+              </div>
+              <div className="seg-control" role="group" aria-label="Alcance de la descarga">
+                <button
+                  type="button"
+                  className={`seg-control__btn ${downloadScope === "accredited" ? "active" : ""}`}
+                  onClick={() => setDownloadScope("accredited")}
+                >
+                  Solo acreditados
+                </button>
+                <button
+                  type="button"
+                  className={`seg-control__btn ${downloadScope === "all" ? "active" : ""}`}
+                  onClick={() => setDownloadScope("all")}
+                >
+                  Todas las personas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="downloads-grid">
+            {([
+              { by: "ministerio" as const, title: "Por ministerio", icon: "apartment", query: ministerioBreakdownQuery },
+              { by: "rol" as const, title: "Por ROL", icon: "badge", query: rolBreakdownQuery }
+            ]).map(({ by, title, icon, query }) => {
+              const groups = query.data?.groups ?? [];
+              const topGroups = groups.slice(0, 8);
+              const busyKey = `${by}-${downloadScope}`;
+              return (
+                <div key={by} className="card download-card">
+                  <div className="row gap" style={{ alignItems: "center", marginBottom: "0.5rem" }}>
+                    <Icon name={icon} />
+                    <h4 style={{ margin: 0, fontSize: "1.1rem" }}>{title}</h4>
+                  </div>
+                  <p style={{ margin: "0 0 0.75rem", color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
+                    {query.isLoading
+                      ? "Calculando grupos…"
+                      : `${groups.length} grupo(s) · ${query.data?.total ?? 0} persona(s)`}
+                  </p>
+                  {topGroups.length > 0 ? (
+                    <ul className="download-breakdown">
+                      {topGroups.map((g) => (
+                        <li key={g.key}>
+                          <span className="download-breakdown__name" title={g.key}>{g.key}</span>
+                          <span className="download-breakdown__count">{g.count}</span>
+                        </li>
+                      ))}
+                      {groups.length > topGroups.length ? (
+                        <li className="download-breakdown__more">
+                          + {groups.length - topGroups.length} grupo(s) más en el archivo
+                        </li>
+                      ) : null}
+                    </ul>
+                  ) : (
+                    <p style={{ color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
+                      {query.isLoading ? "" : "Sin datos para este alcance."}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ marginTop: "0.75rem" }}
+                    disabled={downloadBusy === busyKey || groups.length === 0}
+                    onClick={async () => {
+                      setDownloadBusy(busyKey);
+                      try {
+                        await downloadGroupedXlsx(id, by, downloadScope);
+                      } catch {
+                        alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                      } finally {
+                        setDownloadBusy(null);
+                      }
+                    }}
+                  >
+                    <Icon name="download" />
+                    {downloadBusy === busyKey ? "Generando…" : "Descargar XLSX"}
+                  </button>
+                </div>
+              );
+            })}
+
+            <div className="card download-card download-card--muted">
+              <div className="row gap" style={{ alignItems: "center", marginBottom: "0.5rem" }}>
+                <Icon name="cake" />
+                <h4 style={{ margin: 0, fontSize: "1.1rem" }}>Por rango etario</h4>
+              </div>
+              <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
+                Todavía no disponible: hoy no guardamos fecha de nacimiento ni edad de las personas, así que no se
+                puede agrupar por rango etario. Si la planilla de importación incluye una columna de fecha de
+                nacimiento, podemos sumarlo.
+              </p>
+            </div>
+          </div>
+
+          <div className="card">
+            <h4 style={{ margin: "0 0 0.75rem", fontSize: "1.05rem" }}>Otras exportaciones</h4>
+            <div className="row gap" style={{ flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    await downloadAccreditedXlsx(id, "all");
+                  } catch {
+                    alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                  }
+                }}
+              >
+                <Icon name="download" />
+                Acreditados (todos)
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    await downloadEventTwoSheetsXlsx(id);
+                  } catch {
+                    alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                  }
+                }}
+              >
+                <Icon name="table_view" />
+                Acreditados + fuera de base (2 hojas)
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    await downloadPeopleBaseXlsx(id, { importedOnly: true });
+                  } catch {
+                    alert("No se pudo descargar. Reintentá o revisá tu sesión.");
+                  }
+                }}
+              >
+                <Icon name="download" />
+                Base importada
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
