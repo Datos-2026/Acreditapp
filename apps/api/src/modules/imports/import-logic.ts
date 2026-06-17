@@ -159,15 +159,72 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
     normalized.notes = String(normalized.notes).trim();
   }
 
+  const dni = normalizeDni(String(normalized.dni ?? ""));
+  if (dni) {
+    normalized.dni = dni;
+    const cuilDigits = normalizeCuil(String(normalized.cuil ?? ""));
+    if (!cuilDigits || cuilDigits.length !== 11) {
+      normalized.cuil = syntheticCuilFromDni(dni);
+      normalized.cuit = normalized.cuil;
+    }
+  }
+
+  if (normalized.presente != null && normalized.presente !== "") {
+    normalized.presente = String(normalized.presente).trim();
+  }
+
   return normalized;
+}
+
+/** Clave de identificación para deduplicar filas en importación (CUIL o DNI). */
+export function importRowIdKey(canonical: Record<string, unknown>): string {
+  const cuil = normalizeCuil(String(canonical.cuil ?? ""));
+  if (cuil.length === 11) return cuil;
+  return normalizeDni(String(canonical.dni ?? "")) ?? "";
 }
 
 export function validateImportRow(canonical: Record<string, unknown>): string[] {
   const normalized = normalizeImportCanonical(canonical);
-  const cuil = normalizeCuil(String(normalized.cuil ?? ""));
   const errors: string[] = [];
-  if (!cuil || cuil.length !== 11) errors.push("CUIL inválido o faltante");
+  if (!importRowIdKey(normalized)) errors.push("CUIL o DNI inválido o faltante");
   return errors;
+}
+
+/**
+ * Autodetección de columnas comunes a GCBA y Vecinos (organizaciones, DNI, asistencia, etc.).
+ * Devuelve null si no aplica; el caller puede seguir con reglas específicas del tipo de evento.
+ */
+export function detectUniversalImportColumn(normalized: string): string | null {
+  if (normalized.includes("dni") || normalized.includes("documento") || normalized.includes("num doc")) {
+    return "dni";
+  }
+  if (normalized.includes("cuit") || normalized.includes("cuil")) {
+    return "cuil";
+  }
+  if (
+    normalized.includes("nombre de la organizacion") ||
+    normalized.includes("nombre organizacion") ||
+    normalized.includes("nombre de organizacion")
+  ) {
+    return "empresa";
+  }
+  if (
+    normalized.includes("tipo de la organizacion") ||
+    normalized.includes("tipo organizacion") ||
+    normalized.includes("tipo de organizacion")
+  ) {
+    return "cargo";
+  }
+  if (normalized.includes("nombre y apellido")) {
+    return "nombreApellido";
+  }
+  if (normalized === "ayn" || normalized.includes("apellido y nombre")) {
+    return "nombreCompleto";
+  }
+  if (normalized.includes("asistio") || normalized === "presente") {
+    return "presente";
+  }
+  return null;
 }
 
 export function normalizeVecinoImportCanonical(canonical: Record<string, unknown>): Record<string, unknown> {
@@ -199,15 +256,24 @@ export function validateVecinoImportRow(canonical: Record<string, unknown>): str
   return errors;
 }
 
-/** Campos extra del evento vecinos que van a EventPerson.extraData. */
-export function buildVecinoExtraData(
+/** Campos operativos de la fila que van a EventPerson.extraData. */
+export function buildImportExtraData(
   canonical: Record<string, unknown>,
-  extraData: Record<string, unknown>
+  extraData: Record<string, unknown>,
+  keys: readonly string[] = ["mesa", "presente", "direccion"]
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...extraData };
-  for (const key of ["mesa", "presente", "direccion"] as const) {
+  for (const key of keys) {
     const v = canonical[key];
     if (v != null && String(v).trim() !== "") out[key] = String(v).trim();
   }
   return out;
+}
+
+/** @deprecated usar buildImportExtraData */
+export function buildVecinoExtraData(
+  canonical: Record<string, unknown>,
+  extraData: Record<string, unknown>
+): Record<string, unknown> {
+  return buildImportExtraData(canonical, extraData, ["mesa", "presente", "direccion"]);
 }

@@ -12,7 +12,10 @@ import { assertEventKindForRole } from "../events/event-kind-access";
 import { createAuditLog } from "../../lib/audit";
 import {
   applyImportMappedValue,
+  buildImportExtraData,
   buildVecinoExtraData,
+  detectUniversalImportColumn,
+  importRowIdKey,
   isImportNoiseColumn,
   normalizeImportCanonical,
   normalizeImportSheetHeader,
@@ -30,6 +33,7 @@ const upload = multer({
 const gcbaCanonicalFields = [
   "cuil",
   "cuit",
+  "dni",
   "nombre",
   "apellido",
   "nombreCompleto",
@@ -38,7 +42,8 @@ const gcbaCanonicalFields = [
   "telefono",
   "empresa",
   "cargo",
-  "notes"
+  "notes",
+  "presente"
 ] as const;
 
 const vecinoCanonicalFields = [
@@ -52,6 +57,8 @@ const vecinoCanonicalFields = [
   "direccion",
   "mesa",
   "presente",
+  "empresa",
+  "cargo",
   "notes"
 ] as const;
 
@@ -104,11 +111,15 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
       kind === "vecinos" ? validateVecinoImportRow(normalizedCanonical) : validateImportRow(normalizedCanonical);
     const idKey =
       kind === "vecinos"
-        ? String(normalizedCanonical.dni ?? "")
-        : normalizeCuil(String(normalizedCanonical.cuil ?? ""));
+        ? String(normalizedCanonical.dni ?? "") || importRowIdKey(normalizedCanonical)
+        : importRowIdKey(normalizedCanonical);
     if (idKey && idSet.has(idKey)) {
       duplicateRows += 1;
-      rowErrors.push(kind === "vecinos" ? "DNI duplicado en archivo" : "CUIL duplicado en archivo");
+      rowErrors.push(
+        kind === "vecinos" || normalizeDni(String(normalizedCanonical.dni ?? ""))
+          ? "DNI duplicado en archivo"
+          : "CUIL duplicado en archivo"
+      );
     } else if (idKey) {
       idSet.add(idKey);
     }
@@ -191,7 +202,9 @@ async function importParsedRows(
               dni,
               email: mapped.email ? String(mapped.email) : undefined,
               phone: mapped.telefono ? String(mapped.telefono) : undefined,
-              address: mapped.direccion ? String(mapped.direccion) : undefined
+              address: mapped.direccion ? String(mapped.direccion) : undefined,
+              company: mapped.empresa ? String(mapped.empresa) : undefined,
+              position: mapped.cargo ? String(mapped.cargo) : undefined
             }
           })
         : await prisma.person.upsert({
@@ -204,7 +217,9 @@ async function importParsedRows(
               lastName,
               email: mapped.email ? String(mapped.email) : null,
               phone: mapped.telefono ? String(mapped.telefono) : null,
-              address: mapped.direccion ? String(mapped.direccion) : null
+              address: mapped.direccion ? String(mapped.direccion) : null,
+              company: mapped.empresa ? String(mapped.empresa) : null,
+              position: mapped.cargo ? String(mapped.cargo) : null
             },
             update: {
               firstName,
@@ -212,7 +227,9 @@ async function importParsedRows(
               dni,
               email: mapped.email ? String(mapped.email) : undefined,
               phone: mapped.telefono ? String(mapped.telefono) : undefined,
-              address: mapped.direccion ? String(mapped.direccion) : undefined
+              address: mapped.direccion ? String(mapped.direccion) : undefined,
+              company: mapped.empresa ? String(mapped.empresa) : undefined,
+              position: mapped.cargo ? String(mapped.cargo) : undefined
             }
           });
 
@@ -232,11 +249,14 @@ async function importParsedRows(
       });
     } else {
       const cuil = normalizeCuil(String(mapped.cuil ?? ""));
+      const dni = normalizeDni(String(mapped.dni ?? ""));
+      const extraPayload = buildImportExtraData(mapped, row.extraData, ["presente"]);
       const person = await prisma.person.upsert({
         where: { cuilNormalized: cuil },
         create: {
           cuilNormalized: cuil,
-          cuilRaw: String(mapped.cuil ?? cuil),
+          cuilRaw: dni ?? String(mapped.cuil ?? cuil),
+          dni,
           firstName,
           lastName,
           email: mapped.email ? String(mapped.email) : null,
@@ -248,6 +268,7 @@ async function importParsedRows(
         update: {
           firstName,
           lastName,
+          dni: dni ?? undefined,
           email: mapped.email ? String(mapped.email) : undefined,
           phone: mapped.telefono ? String(mapped.telefono) : undefined,
           company: mapped.empresa ? String(mapped.empresa) : undefined,
@@ -263,11 +284,17 @@ async function importParsedRows(
           personId: person.id,
           source: "imported",
           importBatchId: batch.id,
-          extraData: Prisma.JsonNull
+          extraData:
+            Object.keys(extraPayload).length > 0
+              ? (extraPayload as Prisma.InputJsonValue)
+              : Prisma.JsonNull
         },
         update: {
           importBatchId: batch.id,
-          extraData: Prisma.JsonNull
+          extraData:
+            Object.keys(extraPayload).length > 0
+              ? (extraPayload as Prisma.InputJsonValue)
+              : Prisma.JsonNull
         }
       });
     }
@@ -284,23 +311,16 @@ function autoDetectVecinoMapping(headers: string[]) {
   const map: Record<string, string> = {};
   headers.forEach((header) => {
     const normalized = normalizeImportSheetHeader(header);
-    if (normalized.includes("dni") || normalized.includes("documento") || normalized.includes("num doc")) {
-      map[header] = "dni";
-      return;
-    }
-    if (normalized.includes("nombre y apellido")) {
-      map[header] = "nombreApellido";
-      return;
-    }
-    if (normalized.includes("apellido y nombre") || normalized === "ayn") {
-      map[header] = "nombreCompleto";
+    const universal = detectUniversalImportColumn(normalized);
+    if (universal) {
+      map[header] = universal;
       return;
     }
     if (normalized === "apellido" || normalized === "apellidos" || normalized.startsWith("apellido")) {
       map[header] = "apellido";
       return;
     }
-    if (normalized === "nombre" || normalized === "nombres" || normalized.startsWith("nombre")) {
+    if (normalized === "nombre" || normalized === "nombres") {
       map[header] = "nombre";
       return;
     }
@@ -310,10 +330,6 @@ function autoDetectVecinoMapping(headers: string[]) {
     }
     if (normalized.includes("mesa")) {
       map[header] = "mesa";
-      return;
-    }
-    if (normalized.includes("presente")) {
-      map[header] = "presente";
       return;
     }
     if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email") {
@@ -337,21 +353,9 @@ function autoDetectMapping(headers: string[]) {
   const map: Record<string, string> = {};
   headers.forEach((header) => {
     const normalized = normalizeImportSheetHeader(header);
-
-    if (normalized.includes("cuit") || normalized.includes("cuil")) {
-      map[header] = "cuil";
-      return;
-    }
-    if (normalized === "ayn" || normalized.includes("apellido y nombre")) {
-      map[header] = "nombreCompleto";
-      return;
-    }
-    /**
-     * "Nombre y Apellido" (orden inverso): se separa con `parseNombreApellido`
-     * tomando el último token como apellido y el resto como nombres.
-     */
-    if (normalized.includes("nombre y apellido")) {
-      map[header] = "nombreApellido";
+    const universal = detectUniversalImportColumn(normalized);
+    if (universal) {
+      map[header] = universal;
       return;
     }
     if (

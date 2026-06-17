@@ -99,6 +99,36 @@ describe("isImportNoiseColumn", () => {
   });
 });
 
+describe("detectUniversalImportColumn", () => {
+  it("mapea columnas de organizaciones, DNI y asistencia", async () => {
+    const { detectUniversalImportColumn } = await import("./import-logic");
+    expect(detectUniversalImportColumn("nombre de la organizacion")).toBe("empresa");
+    expect(detectUniversalImportColumn("tipo de la organizacion")).toBe("cargo");
+    expect(detectUniversalImportColumn("nombre y apellido")).toBe("nombreApellido");
+    expect(detectUniversalImportColumn("dni")).toBe("dni");
+    expect(detectUniversalImportColumn("asistio")).toBe("presente");
+  });
+});
+
+describe("validateImportRow con DNI", () => {
+  it("acepta fila GCBA solo con DNI (sin CUIL en planilla)", async () => {
+    const { validateImportRow, normalizeImportCanonical } = await import("./import-logic");
+    const canonical = normalizeImportCanonical({
+      dni: "30123456",
+      nombreApellido: "Juan Pérez"
+    });
+    expect(validateImportRow(canonical)).toEqual([]);
+    expect(canonical.cuil).toBe("00030123456");
+    expect(canonical.nombre).toBe("Juan");
+    expect(canonical.apellido).toBe("Pérez");
+  });
+
+  it("rechaza fila sin CUIL ni DNI", async () => {
+    const { validateImportRow } = await import("./import-logic");
+    expect(validateImportRow({ nombre: "Ana", apellido: "García" })).toContain("CUIL o DNI inválido o faltante");
+  });
+});
+
 describe("validateVecinoImportRow", () => {
   it("acepta fila con DNI, nombre y apellido", async () => {
     const { validateVecinoImportRow, normalizeVecinoImportCanonical } = await import("./import-logic");
