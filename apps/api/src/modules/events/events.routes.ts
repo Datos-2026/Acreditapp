@@ -3,8 +3,8 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import type { EventReportAiAnalysis } from "@gcba/shared";
-import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil, dniFromCuil } from "@gcba/shared";
-import { EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
+import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil, dniFromCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
+import { EventKind, EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { rejectInformadorExceptReportRead } from "../../middlewares/informador-scope";
@@ -13,10 +13,18 @@ import { validateBody } from "../../middlewares/validate";
 import { createAuditLog } from "../../lib/audit";
 import { AppError } from "../../middlewares/error-handler";
 import { ensureEventAccess } from "./event-access";
+import {
+  assertEventKindForRole,
+  assertRoleCanCreateEventKind,
+  eventsListWhere,
+  isSuperAdmin,
+  VECINOS_CREATABLE_ROLES
+} from "./event-kind-access";
 import { ensureNotAlreadyAccredited } from "./event-logic";
 import { buildEventReportPayload } from "../reports/build-event-report";
 import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 import { pickDirectoryEmail, toDirectoryPersonDto } from "../directory/directory-logic";
+import { toVecinoDirectoryPersonDto } from "../directory/vecino-directory-logic";
 import {
   buildDirectoryLookupMap,
   buildTwoSheetsXlsxBuffer,
@@ -26,6 +34,14 @@ import {
 const router = Router();
 router.use(requireAuth);
 router.use(rejectInformadorExceptReportRead);
+
+function authIsSuperAdmin(role: string): boolean {
+  return isSuperAdmin(role);
+}
+
+async function ensureAccess(eventId: string, userId: string, role: string): Promise<void> {
+  await ensureEventAccess(eventId, userId, authIsSuperAdmin(role), role);
+}
 
 const PERSON_EXPORT_HEADER = [
   "CUIL",
@@ -87,23 +103,37 @@ const eventSchema = z.object({
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   location: z.string().optional().nullable(),
-  status: z.nativeEnum(EventStatus).default(EventStatus.draft)
+  status: z.nativeEnum(EventStatus).default(EventStatus.draft),
+  kind: z.enum(["gcba", "vecinos"]).default("gcba")
 });
 
 const assignUsersSchema = z.object({
   userIds: z.array(z.string())
 });
 
-const manualFromDirectorySchema = z.object({
-  cuilNormalized: z.string().length(11, "CUIL de 11 dígitos requerido")
-});
+const manualFromDirectorySchema = z
+  .object({
+    cuilNormalized: z.string().optional(),
+    dni: z.string().optional()
+  })
+  .refine((data) => Boolean(data.cuilNormalized || data.dni), {
+    message: "Se requiere CUIL o DNI"
+  });
 
 const createEventStaffUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8, "Contraseña mínima de 8 caracteres"),
-  role: z.enum([UserRole.ADMIN_EVENTO, UserRole.ACREDITADOR, UserRole.LECTURA, UserRole.INFORMADOR])
+  role: z.enum([
+    UserRole.ADMIN_EVENTO,
+    UserRole.ACREDITADOR,
+    UserRole.LECTURA,
+    UserRole.INFORMADOR
+  ])
 });
+
+const ACCREDIT_ROLES = ["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"] as const;
+const MANAGE_EVENT_ROLES = ["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"] as const;
 
 function slugFromEventName(name: string): string {
   return name
@@ -142,14 +172,7 @@ async function assertEventAcceptingAccreditations(eventId: string): Promise<void
 
 router.get("/", async (req, res, next) => {
   try {
-    const where =
-      req.auth!.role === "SUPERADMIN"
-        ? {}
-        : {
-            eventUsers: {
-              some: { userId: req.auth!.id }
-            }
-          };
+    const where = eventsListWhere(req.auth!.id, req.auth!.role);
     const events = await prisma.event.findMany({
       where,
       include: {
@@ -175,14 +198,26 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-router.post("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventSchema), async (req, res, next) => {
+router.post(
+  "/",
+  requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"),
+  validateBody(eventSchema),
+  async (req, res, next) => {
   try {
+    const kind = (req.body.kind ?? "gcba") as EventKind;
+    assertRoleCanCreateEventKind(req.auth!.role, kind);
     const event = await prisma.event.create({
       data: {
         ...req.body,
+        kind,
         slug: slugFromEventName(req.body.name)
       }
     });
+    if (req.auth!.role === UserRole.ADMIN_VECINOS || req.auth!.role === UserRole.ADMIN_EVENTO) {
+      await prisma.eventUser.create({
+        data: { eventId: event.id, userId: req.auth!.id }
+      });
+    }
     await createAuditLog({
       req,
       action: "event.create",
@@ -202,7 +237,7 @@ router.post("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventS
 /** XLSX de acreditados. ?manualOnly=true → solo manual (fuera de base). ?importedOnly=true → solo desde base importada. */
 router.get("/:id/export/accredited", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const manualOnly = String(req.query.manualOnly ?? "false") === "true";
     const importedOnly = String(req.query.importedOnly ?? "false") === "true";
 
@@ -262,7 +297,7 @@ router.get("/:id/export/accredited", async (req, res, next) => {
 /** XLSX con hojas ACREDITADOS y FUERA DE BASE (columnas dotación + operativas). */
 router.get("/:id/export/two-sheets", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
 
     const [event, accreditedRows] = await Promise.all([
       prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
@@ -326,7 +361,7 @@ router.get("/:id/export/two-sheets", async (req, res, next) => {
 /** XLSX de la nómina del evento (base importada). Mismas columnas que exportación de acreditados. */
 router.get("/:id/export/people", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const importedOnly = String(req.query.importedOnly ?? "true") === "true";
 
     const [event, rows] = await Promise.all([
@@ -367,12 +402,19 @@ router.get("/:id/export/people", async (req, res, next) => {
   }
 });
 
-type GroupableDimension = "ministerio" | "rol";
+type GcbaGroupDimension = "ministerio" | "rol";
+type VecinoGroupDimension = "comuna" | "mesa";
+type GroupableDimension = GcbaGroupDimension | VecinoGroupDimension;
 type GroupScope = "accredited" | "all";
 
-const GROUP_FIELD_LABEL: Record<GroupableDimension, string> = {
+const GCBA_GROUP_LABEL: Record<GcbaGroupDimension, string> = {
   ministerio: "Ministerio",
   rol: "ROL"
+};
+
+const VECINO_GROUP_LABEL: Record<VecinoGroupDimension, string> = {
+  comuna: "Comuna",
+  mesa: "Mesa"
 };
 
 const NO_DATA_GROUP = "Sin dato";
@@ -387,10 +429,30 @@ function firstSegment(value: string): string {
   return first.trim();
 }
 
-function groupKeyFor(dimension: GroupableDimension, row: EventPersonExportRow): string {
+function groupKeyFor(kind: EventKind, dimension: GroupableDimension, row: EventPersonExportRow): string {
+  if (kind === "vecinos") {
+    if (dimension === "comuna") {
+      const v = (row.person.comuna ?? "").trim();
+      return v.length > 0 ? v : NO_DATA_GROUP;
+    }
+    if (dimension === "mesa") {
+      const extra = row.extraData as Record<string, unknown> | null;
+      const v = String(extra?.mesa ?? "").trim();
+      return v.length > 0 ? v : NO_DATA_GROUP;
+    }
+  }
   const raw = dimension === "ministerio" ? row.person.company : row.person.position;
   const value = firstSegment((raw ?? "").trim());
   return value.length > 0 ? value : NO_DATA_GROUP;
+}
+
+function validDimensionsForKind(kind: EventKind): GroupableDimension[] {
+  return kind === "vecinos" ? ["comuna", "mesa"] : ["ministerio", "rol"];
+}
+
+function groupLabelFor(kind: EventKind, dimension: GroupableDimension): string {
+  if (kind === "vecinos") return VECINO_GROUP_LABEL[dimension as VecinoGroupDimension];
+  return GCBA_GROUP_LABEL[dimension as GcbaGroupDimension];
 }
 
 /** Nombre de hoja válido para Excel (máx 31, sin caracteres reservados) y único dentro del libro. */
@@ -422,18 +484,24 @@ async function loadGroupableRows(eventId: string, scope: GroupScope): Promise<Ev
 /** Conteos por dimensión (ministerio/ROL) para previsualizar el panel de descargas. */
 router.get("/:id/people/breakdown", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const by = (String(req.query.by ?? "ministerio") as GroupableDimension);
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { kind: true }
+    });
+    const by = String(req.query.by ?? (event.kind === "vecinos" ? "comuna" : "ministerio")) as GroupableDimension;
     const scope = (String(req.query.scope ?? "accredited") as GroupScope);
-    if (by !== "ministerio" && by !== "rol") {
-      res.status(400).json({ message: "Parámetro by inválido (ministerio | rol)" });
+    if (!validDimensionsForKind(event.kind).includes(by)) {
+      res.status(400).json({
+        message: `Parámetro by inválido (${validDimensionsForKind(event.kind).join(" | ")})`
+      });
       return;
     }
 
     const rows = await loadGroupableRows(req.params.id, scope === "all" ? "all" : "accredited");
     const counts = new Map<string, number>();
     for (const row of rows) {
-      const key = groupKeyFor(by, row);
+      const key = groupKeyFor(event.kind, by, row);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
 
@@ -441,7 +509,7 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
       .map(([key, count]) => ({ key, count }))
       .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key, "es"));
 
-    res.json({ by, scope: scope === "all" ? "all" : "accredited", total: rows.length, groups });
+    res.json({ by, scope: scope === "all" ? "all" : "accredited", total: rows.length, groups, eventKind: event.kind });
   } catch (error) {
     next(error);
   }
@@ -450,23 +518,26 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
 /** XLSX con una hoja por grupo (ministerio o ROL) + hoja Resumen con los conteos. */
 router.get("/:id/export/grouped", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
-    const by = (String(req.query.by ?? "ministerio") as GroupableDimension);
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const eventMeta = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { slug: true, name: true, kind: true }
+    });
+    const by = String(req.query.by ?? (eventMeta.kind === "vecinos" ? "comuna" : "ministerio")) as GroupableDimension;
     const scope = (String(req.query.scope ?? "accredited") as GroupScope);
-    if (by !== "ministerio" && by !== "rol") {
-      res.status(400).json({ message: "Parámetro by inválido (ministerio | rol)" });
+    if (!validDimensionsForKind(eventMeta.kind).includes(by)) {
+      res.status(400).json({
+        message: `Parámetro by inválido (${validDimensionsForKind(eventMeta.kind).join(" | ")})`
+      });
       return;
     }
     const normalizedScope: GroupScope = scope === "all" ? "all" : "accredited";
 
-    const [event, rows] = await Promise.all([
-      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
-      loadGroupableRows(req.params.id, normalizedScope)
-    ]);
+    const rows = await loadGroupableRows(req.params.id, normalizedScope);
 
     const groups = new Map<string, EventPersonExportRow[]>();
     for (const row of rows) {
-      const key = groupKeyFor(by, row);
+      const key = groupKeyFor(eventMeta.kind, by, row);
       const bucket = groups.get(key);
       if (bucket) bucket.push(row);
       else groups.set(key, [row]);
@@ -480,7 +551,7 @@ router.get("/:id/export/grouped", async (req, res, next) => {
     const usedSheetNames = new Set<string>();
 
     const summaryAoa: (string | number)[][] = [
-      [GROUP_FIELD_LABEL[by], "Cantidad"],
+      [groupLabelFor(eventMeta.kind, by), "Cantidad"],
       ...sortedGroups.map(([name, gr]) => [name, gr.length] as (string | number)[]),
       ["TOTAL", rows.length]
     ];
@@ -501,7 +572,7 @@ router.get("/:id/export/grouped", async (req, res, next) => {
 
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-    const suffix = fileSuffixFromEvent(event);
+    const suffix = fileSuffixFromEvent(eventMeta);
     const scopeLabel = normalizedScope === "all" ? "personas" : "acreditados";
     const filename = `${scopeLabel}-por-${by}__${suffix}.xlsx`;
 
@@ -527,7 +598,7 @@ router.get("/:id/export/grouped", async (req, res, next) => {
 /** Informe post-evento: métricas + análisis IA guardado (si existe). */
 router.get("/:id/report", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const payload = await buildEventReportPayload(req.params.id);
     if (!payload) {
       res.status(404).json({ message: "Evento no encontrado" });
@@ -559,7 +630,7 @@ function isValidAiAnalysisShape(x: EventReportAiAnalysis): boolean {
 /** Genera o devuelve análisis cacheado. Body: `{ regenerate?: true }` fuerza nueva llamada a Gemini. */
 router.post("/:id/report/ai", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const eventId = req.params.id;
     const regenerate = Boolean(req.body?.regenerate);
 
@@ -605,7 +676,7 @@ router.post("/:id/report/ai", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
       include: {
@@ -641,9 +712,12 @@ router.get("/:id", async (req, res, next) => {
   }
 });
 
-router.patch("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(eventSchema.partial()), async (req, res, next) => {
+router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventSchema.partial()), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    if (req.auth!.role === UserRole.ADMIN_VECINOS && req.body.kind && req.body.kind !== "vecinos") {
+      throw new AppError("No podés cambiar el tipo de evento a GCBA", 403);
+    }
     const data: Prisma.EventUpdateInput = { ...req.body };
     if (typeof req.body.name === "string") {
       data.slug = slugFromEventName(req.body.name);
@@ -669,9 +743,9 @@ router.patch("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), validateBody(ev
   }
 });
 
-router.delete("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, res, next) => {
+router.delete("/:id", requireRoles(...MANAGE_EVENT_ROLES), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
       select: { id: true, name: true }
@@ -694,9 +768,10 @@ router.delete("/:id", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, re
   }
 });
 
-router.post("/:id/users", requireRoles("SUPERADMIN"), validateBody(assignUsersSchema), async (req, res, next) => {
+router.post("/:id/users", requireRoles("SUPERADMIN", "ADMIN_VECINOS"), validateBody(assignUsersSchema), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    await assertEventKindForRole(req.params.id, req.auth!.role);
     await prisma.eventUser.deleteMany({ where: { eventId: req.params.id } });
     await prisma.eventUser.createMany({
       data: req.body.userIds.map((userId: string) => ({
@@ -720,12 +795,19 @@ router.post("/:id/users", requireRoles("SUPERADMIN"), validateBody(assignUsersSc
 /** Crea un usuario operativo y lo agrega al acceso del evento en una sola transacción. */
 router.post(
   "/:id/users/create-and-assign",
-  requireRoles("SUPERADMIN"),
+  requireRoles("SUPERADMIN", "ADMIN_VECINOS"),
   validateBody(createEventStaffUserSchema),
   async (req, res, next) => {
     const eventId = req.params.id;
     try {
-      await ensureEventAccess(eventId, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      await ensureAccess(eventId, req.auth!.id, req.auth!.role);
+      await assertEventKindForRole(eventId, req.auth!.role);
+      if (
+        req.auth!.role === UserRole.ADMIN_VECINOS &&
+        !VECINOS_CREATABLE_ROLES.includes(req.body.role)
+      ) {
+        throw new AppError("Rol no permitido para administrador de vecinos", 403);
+      }
 
       const email = req.body.email.trim().toLowerCase();
       const { user, assignedUserIds } = await prisma.$transaction(async (tx) => {
@@ -790,7 +872,7 @@ router.post(
 
 router.get("/:id/people", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const page = Number(req.query.page ?? 1);
     const pageSize = Number(req.query.pageSize ?? 20);
     const q = String(req.query.q ?? "").trim();
@@ -845,10 +927,10 @@ type BulkDeletePeopleScope = (typeof bulkDeletePeopleScopes)[number];
 /** Elimina personas del evento en lote. ?scope=all|accredited|pending|imported */
 router.delete(
   "/:id/people/bulk",
-  requireRoles("SUPERADMIN", "ADMIN_EVENTO"),
+  requireRoles(...MANAGE_EVENT_ROLES),
   async (req, res, next) => {
     try {
-      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
       const scope = String(req.query.scope ?? "") as BulkDeletePeopleScope;
       if (!bulkDeletePeopleScopes.includes(scope)) {
         res.status(400).json({
@@ -883,10 +965,10 @@ router.delete(
 
 router.delete(
   "/:id/people/:eventPersonId",
-  requireRoles("SUPERADMIN", "ADMIN_EVENTO"),
+  requireRoles(...MANAGE_EVENT_ROLES),
   async (req, res, next) => {
     try {
-      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
       const eventPerson = await prisma.eventPerson.findUnique({
         where: { id: req.params.eventPersonId },
         include: { person: { select: { firstName: true, lastName: true, cuilNormalized: true } } }
@@ -917,14 +999,51 @@ router.delete(
 
 router.get("/:id/people/search", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { kind: true }
+    });
     const raw = String(req.query.cuil ?? req.query.dni ?? "").trim();
     const digits = normalizeCuil(raw);
+
+    if (event.kind === "vecinos") {
+      const dni = normalizeDni(raw);
+      if (!dni) {
+        throw new AppError("Ingresá un DNI válido (6 a 8 dígitos)", 400);
+      }
+      const cuilSynthetic = syntheticCuilFromDni(dni);
+      const personWhere: Prisma.PersonWhereInput = {
+        OR: [{ dni }, { cuilNormalized: cuilSynthetic }]
+      };
+
+      const eventPerson = await prisma.eventPerson.findFirst({
+        where: { eventId: req.params.id, person: personWhere },
+        include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+      });
+      if (eventPerson) {
+        res.json({ inEvent: true, eventPerson });
+        return;
+      }
+
+      const vecinoDirectoryPerson = await prisma.vecinoDirectoryPerson.findUnique({ where: { dni } });
+      if (vecinoDirectoryPerson) {
+        res.json({
+          inEvent: false,
+          fromDirectory: true,
+          directoryKind: "vecinos",
+          directoryPerson: toVecinoDirectoryPersonDto(vecinoDirectoryPerson)
+        });
+        return;
+      }
+
+      res.status(404).json({ message: "No encontrado en este evento ni en el directorio de vecinos" });
+      return;
+    }
+
     let personWhere: Prisma.PersonWhereInput;
     if (digits.length === 11) {
       if (!isValidCuil(digits)) throw new AppError("CUIL inválido", 400);
-      // También buscamos por el DNI embebido en el CUIL: una misma persona puede estar
-      // en la base del evento con un prefijo de género o verificador distinto al del CUIL tipeado.
       const dni = dniFromCuil(digits);
       personWhere = dni
         ? { OR: [{ cuilNormalized: digits }, { dni }] }
@@ -964,6 +1083,7 @@ router.get("/:id/people/search", async (req, res, next) => {
       res.json({
         inEvent: false,
         fromDirectory: true,
+        directoryKind: "gcba",
         directoryPerson: toDirectoryPersonDto(directoryPerson)
       });
       return;
@@ -977,13 +1097,84 @@ router.get("/:id/people/search", async (req, res, next) => {
 
 router.post(
   "/:id/people/manual-from-directory",
-  requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"),
+  requireRoles(...ACCREDIT_ROLES),
   validateBody(manualFromDirectorySchema),
   async (req, res, next) => {
     try {
-      await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
       await assertEventAcceptingAccreditations(req.params.id);
-      const cuilNormalized = normalizeCuil(req.body.cuilNormalized);
+      const event = await prisma.event.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: { kind: true }
+      });
+
+      if (event.kind === "vecinos") {
+        const dni =
+          normalizeDni(String(req.body.dni ?? "")) ??
+          (req.body.cuilNormalized ? normalizeDni(dniFromCuil(req.body.cuilNormalized) ?? "") : null);
+        if (!dni) throw new AppError("DNI inválido", 400);
+
+        const directoryPerson = await prisma.vecinoDirectoryPerson.findUnique({ where: { dni } });
+        if (!directoryPerson) throw new AppError("No está en el directorio de vecinos", 404);
+
+        const cuilNormalized = syntheticCuilFromDni(dni);
+        const existing = await prisma.person.findFirst({
+          where: { OR: [{ dni }, { cuilNormalized }] }
+        });
+
+        const person = existing
+          ? await prisma.person.update({
+              where: { id: existing.id },
+              data: {
+                cuilNormalized,
+                cuilRaw: dni,
+                dni,
+                firstName: directoryPerson.firstName,
+                lastName: directoryPerson.lastName,
+                email: directoryPerson.email ?? existing.email,
+                phone: directoryPerson.phone ?? existing.phone,
+                address: directoryPerson.address ?? existing.address,
+                comuna: directoryPerson.comuna ?? existing.comuna
+              }
+            })
+          : await prisma.person.create({
+              data: {
+                cuilNormalized,
+                cuilRaw: dni,
+                dni,
+                firstName: directoryPerson.firstName,
+                lastName: directoryPerson.lastName,
+                email: directoryPerson.email,
+                phone: directoryPerson.phone,
+                address: directoryPerson.address,
+                comuna: directoryPerson.comuna
+              }
+            });
+
+        const eventPerson = await prisma.eventPerson.upsert({
+          where: { eventId_personId: { eventId: req.params.id, personId: person.id } },
+          update: {},
+          create: {
+            eventId: req.params.id,
+            personId: person.id,
+            source: "manual"
+          },
+          include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+        });
+
+        await createAuditLog({
+          req,
+          action: "eventPerson.manualFromDirectory",
+          entityType: "eventPerson",
+          entityId: eventPerson.id,
+          metadata: { dni, kind: "vecinos" }
+        });
+
+        res.status(201).json(eventPerson);
+        return;
+      }
+
+      const cuilNormalized = normalizeCuil(String(req.body.cuilNormalized ?? ""));
       if (!isValidCuil(cuilNormalized)) throw new AppError("CUIL inválido", 400);
 
       const directoryPerson = await prisma.directoryPerson.findUnique({
@@ -1037,7 +1228,6 @@ router.post(
             personId: person.id
           }
         },
-        // No degradamos a "manual" a quien ya está en la base importada del evento.
         update: {},
         create: {
           eventId: req.params.id,
@@ -1062,9 +1252,9 @@ router.post(
   }
 );
 
-router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), validateBody(manualPersonSchema), async (req, res, next) => {
+router.post("/:id/people/manual", requireRoles(...ACCREDIT_ROLES), validateBody(manualPersonSchema), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     await assertEventAcceptingAccreditations(req.params.id);
     const doc = parseManualDocument(req.body.cuilRaw);
     const existing = await prisma.person.findFirst({
@@ -1131,9 +1321,9 @@ router.post("/:id/people/manual", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "AC
   }
 });
 
-router.post("/:id/people/:eventPersonId/accredit", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"), async (req, res, next) => {
+router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLES), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     await assertEventAcceptingAccreditations(req.params.id);
     const current = await prisma.eventPerson.findUniqueOrThrow({
       where: { id: req.params.eventPersonId }
@@ -1163,9 +1353,9 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles("SUPERADMIN", "A
   }
 });
 
-router.post("/:id/people/:eventPersonId/reaccredit", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (req, res, next) => {
+router.post("/:id/people/:eventPersonId/reaccredit", requireRoles(...MANAGE_EVENT_ROLES), async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     await assertEventAcceptingAccreditations(req.params.id);
     const reason = z.string().min(5).parse(req.body?.reason);
     const eventPerson = await prisma.eventPerson.findUniqueOrThrow({
@@ -1204,7 +1394,7 @@ router.post("/:id/people/:eventPersonId/reaccredit", requireRoles("SUPERADMIN", 
 
 router.get("/:id/activity", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const activity = await prisma.auditLog.findMany({
       where: {
         OR: [

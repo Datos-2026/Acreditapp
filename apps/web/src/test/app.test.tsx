@@ -34,6 +34,7 @@ describe("frontend critical flows", () => {
             startAt: new Date().toISOString(),
             endAt: new Date().toISOString(),
             status: "active",
+            kind: "gcba",
             location: "La Rural",
             totalPeople: 100,
             accreditedPeople: 20

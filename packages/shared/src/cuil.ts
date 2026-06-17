@@ -34,6 +34,19 @@ export function dniFromCuil(cuil: string): string | null {
   return dni.length >= 6 ? dni : null;
 }
 
+/** Normaliza DNI (6–8 dígitos) o null si inválido. */
+export function normalizeDni(raw: string): string | null {
+  const digits = normalizeCuil(raw);
+  if (digits.length >= 6 && digits.length <= 8) return digits;
+  return null;
+}
+
+/** CUIL sintético para personas identificadas solo por DNI (vecinos). */
+export function syntheticCuilFromDni(dni: string): string {
+  const digits = normalizeCuil(dni);
+  return `00${digits.padStart(9, "0")}`;
+}
+
 export type ManualDocument = {
   cuilNormalized: string;
   dni: string | null;

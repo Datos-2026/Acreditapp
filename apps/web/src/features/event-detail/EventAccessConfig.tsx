@@ -3,16 +3,19 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AppRole } from "@gcba/shared";
 import { api } from "../../lib/api";
+import { useAuth } from "../auth/auth-context";
 
 const ROLE_LABEL: Record<string, string> = {
   SUPERADMIN: "Superadmin",
   ADMIN_EVENTO: "Admin de evento",
+  ADMIN_VECINOS: "Admin vecinos",
   ACREDITADOR: "Acreditador",
   LECTURA: "Solo lectura",
   INFORMADOR: "Informador (solo informes)"
 };
 
 const ROLES_FOR_NEW_USER: AppRole[] = ["ACREDITADOR", "ADMIN_EVENTO", "LECTURA", "INFORMADOR"];
+const ROLES_FOR_VECINOS_NEW_USER: AppRole[] = ["ACREDITADOR", "LECTURA", "INFORMADOR"];
 
 type EventUserRow = {
   userId: string;
@@ -36,7 +39,10 @@ type UserListRow = {
 type Props = { eventId: string };
 
 export function EventAccessConfig({ eventId }: Props) {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const rolesForNewUser =
+    user?.role === "ADMIN_VECINOS" ? ROLES_FOR_VECINOS_NEW_USER : ROLES_FOR_NEW_USER;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [assignFeedback, setAssignFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [createNotice, setCreateNotice] = useState<string | null>(null);
@@ -292,7 +298,7 @@ export function EventAccessConfig({ eventId }: Props) {
               Rol
             </label>
             <select id="ea-role" className="input" value={newRole} onChange={(e) => setNewRole(e.target.value as AppRole)}>
-              {ROLES_FOR_NEW_USER.map((r) => (
+              {rolesForNewUser.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}
                 </option>

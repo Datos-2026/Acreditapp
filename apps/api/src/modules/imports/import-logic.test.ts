@@ -87,3 +87,34 @@ describe("normalizeImportCanonical con header 'Nombre y Apellido'", () => {
     expect(result.apellido).toBe("Pérez");
   });
 });
+
+describe("isImportNoiseColumn", () => {
+  it("detecta columnas vacías generadas por Excel", async () => {
+    const { isImportNoiseColumn } = await import("./import-logic");
+    expect(isImportNoiseColumn("__EMPTY")).toBe(true);
+    expect(isImportNoiseColumn("__EMPTY_1")).toBe(true);
+    expect(isImportNoiseColumn("__EMPTY_14")).toBe(true);
+    expect(isImportNoiseColumn("Nombre")).toBe(false);
+    expect(isImportNoiseColumn("0")).toBe(false);
+  });
+});
+
+describe("validateVecinoImportRow", () => {
+  it("acepta fila con DNI, nombre y apellido", async () => {
+    const { validateVecinoImportRow, normalizeVecinoImportCanonical } = await import("./import-logic");
+    const canonical = normalizeVecinoImportCanonical({
+      dni: "12345678",
+      nombre: "Ana",
+      apellido: "García"
+    });
+    expect(validateVecinoImportRow(canonical)).toEqual([]);
+    expect(canonical.cuil).toBe("00012345678");
+  });
+
+  it("rechaza DNI inválido", async () => {
+    const { validateVecinoImportRow } = await import("./import-logic");
+    expect(validateVecinoImportRow({ dni: "123", nombre: "Ana", apellido: "García" })).toContain(
+      "DNI inválido o faltante"
+    );
+  });
+});

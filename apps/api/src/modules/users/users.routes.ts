@@ -22,7 +22,11 @@ const patchUserSchema = userSchema.partial().extend({
 
 router.use(requireAuth);
 
-router.get("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (_req, res) => {
+import { VECINOS_CREATABLE_ROLES } from "../events/event-kind-access";
+
+const VECINOS_CREATABLE_ROLE_SET = new Set<string>(VECINOS_CREATABLE_ROLES);
+
+router.get("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"), async (_req, res) => {
   const users = await prisma.user.findMany({
     select: {
       id: true,
@@ -37,8 +41,14 @@ router.get("/", requireRoles("SUPERADMIN", "ADMIN_EVENTO"), async (_req, res) =>
   res.json(users);
 });
 
-router.post("/", requireRoles("SUPERADMIN"), validateBody(createUserSchema), async (req, res, next) => {
+router.post("/", requireRoles("SUPERADMIN", "ADMIN_VECINOS"), validateBody(createUserSchema), async (req, res, next) => {
   try {
+    if (
+      req.auth!.role === UserRole.ADMIN_VECINOS &&
+      !VECINOS_CREATABLE_ROLE_SET.has(req.body.role)
+    ) {
+      throw new AppError("Rol no permitido para administrador de vecinos", 403);
+    }
     const passwordHash = await bcrypt.hash(req.body.password, 12);
     const user = await prisma.user.create({
       data: {
@@ -123,7 +133,6 @@ router.patch("/:id", requireRoles("SUPERADMIN"), validateBody(patchUserSchema), 
   }
 });
 
-/** Acreditadores, admins de evento y lectura; no otras cuentas superadmin. */
 const DELETABLE_ROLES: UserRole[] = [
   UserRole.ACREDITADOR,
   UserRole.ADMIN_EVENTO,

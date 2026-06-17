@@ -76,7 +76,7 @@ export async function downloadEventTwoSheetsXlsx(eventId: string): Promise<void>
 }
 
 /** Dimensión por la que se agrupan las personas en el panel de descargas. */
-export type GroupedExportDimension = "ministerio" | "rol";
+export type GroupedExportDimension = "ministerio" | "rol" | "comuna" | "mesa";
 /** `accredited` = solo acreditados; `all` = todas las personas del evento. */
 export type GroupedExportScope = "accredited" | "all";
 

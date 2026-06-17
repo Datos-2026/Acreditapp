@@ -12,9 +12,15 @@ datasource db {
 enum UserRole {
   SUPERADMIN
   ADMIN_EVENTO
+  ADMIN_VECINOS
   ACREDITADOR
   LECTURA
   INFORMADOR
+}
+
+enum EventKind {
+  gcba
+  vecinos
 }
 
 enum EventStatus {
@@ -47,9 +53,10 @@ model User {
   eventUsers    EventUser[]
   accredited    EventPerson[]          @relation("AccreditedBy")
   importBatches     ImportBatch[]
-  directoryUploads DirectoryUpload[] @relation("DirectoryUploads")
-  overrides         AccreditationOverride[]
-  auditLogs         AuditLog[]
+  directoryUploads       DirectoryUpload[] @relation("DirectoryUploads")
+  vecinoDirectoryUploads VecinoDirectoryUpload[] @relation("VecinoDirectoryUploads")
+  overrides              AccreditationOverride[]
+  auditLogs              AuditLog[]
 }
 
 model Event {
@@ -61,6 +68,7 @@ model Event {
   endAt            DateTime
   location         String?
   status           EventStatus         @default(draft)
+  kind             EventKind           @default(gcba)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   eventUsers       EventUser[]
@@ -102,12 +110,15 @@ model Person {
   phone          String?
   company        String?
   position       String?
+  address        String?
+  comuna         String?
   notes          String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   eventPeople    EventPerson[]
 
   @@index([lastName, firstName])
+  @@index([dni])
 }
 
 model EventPerson {
@@ -196,6 +207,34 @@ model DirectoryUpload {
   totalRows        Int
   createdAt        DateTime @default(now())
   uploadedByUser   User     @relation("DirectoryUploads", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+model VecinoDirectoryPerson {
+  id                 String   @id @default(cuid())
+  dni                String   @unique
+  firstName          String
+  lastName           String
+  address            String?
+  comuna             String?
+  phone              String?
+  email              String?
+  participationCount Int?
+  claimCount         Int?
+  codV               String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([lastName, firstName])
+  @@index([comuna])
+}
+
+model VecinoDirectoryUpload {
+  id               String   @id @default(cuid())
+  uploadedByUserId String
+  originalFilename String
+  totalRows        Int
+  createdAt        DateTime @default(now())
+  uploadedByUser   User     @relation("VecinoDirectoryUploads", fields: [uploadedByUserId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {

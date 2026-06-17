@@ -1,4 +1,4 @@
-import { normalizeCuil } from "@gcba/shared";
+import { normalizeCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
 
 /** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
 export function normalizeImportSheetHeader(header: string): string {
@@ -12,6 +12,17 @@ export function normalizeImportSheetHeader(header: string): string {
     .replace(/\s*\/\s*/g, "/")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Columnas fantasma de Excel (celdas vacías, __EMPTY, etc.) que no deben mostrarse ni persistirse. */
+export function isImportNoiseColumn(header: string): boolean {
+  const normalized = normalizeImportSheetHeader(header);
+  if (!normalized) return true;
+  if (normalized === "marca temporal") return true;
+  if (/^__empty(_\d+)?$/.test(normalized)) return true;
+  if (/^column\s*\d+$/i.test(normalized)) return true;
+  if (/^rol\s*\d+$/i.test(normalized)) return true;
+  return false;
 }
 
 /**
@@ -30,7 +41,11 @@ export function applyImportMappedValue(canonical: Record<string, unknown>, targe
     "cargo",
     "nombreCompleto",
     "nombreApellido",
-    "notes"
+    "notes",
+    "dni",
+    "direccion",
+    "mesa",
+    "presente"
   ]);
   if (noEmptyOverwrite.has(target) && !s) {
     return;
@@ -153,4 +168,46 @@ export function validateImportRow(canonical: Record<string, unknown>): string[] 
   const errors: string[] = [];
   if (!cuil || cuil.length !== 11) errors.push("CUIL inválido o faltante");
   return errors;
+}
+
+export function normalizeVecinoImportCanonical(canonical: Record<string, unknown>): Record<string, unknown> {
+  const normalized = normalizeImportCanonical(canonical);
+  const dni = normalizeDni(String(normalized.dni ?? ""));
+  if (dni) {
+    normalized.dni = dni;
+    normalized.cuil = syntheticCuilFromDni(dni);
+  }
+  if (normalized.direccion != null && normalized.direccion !== "") {
+    normalized.direccion = String(normalized.direccion).trim();
+  }
+  if (normalized.mesa != null && normalized.mesa !== "") {
+    normalized.mesa = String(normalized.mesa).trim();
+  }
+  if (normalized.presente != null && normalized.presente !== "") {
+    normalized.presente = String(normalized.presente).trim();
+  }
+  return normalized;
+}
+
+export function validateVecinoImportRow(canonical: Record<string, unknown>): string[] {
+  const normalized = normalizeVecinoImportCanonical(canonical);
+  const errors: string[] = [];
+  const dni = normalizeDni(String(normalized.dni ?? ""));
+  if (!dni) errors.push("DNI inválido o faltante");
+  if (!String(normalized.nombre ?? "").trim()) errors.push("Nombre faltante");
+  if (!String(normalized.apellido ?? "").trim()) errors.push("Apellido faltante");
+  return errors;
+}
+
+/** Campos extra del evento vecinos que van a EventPerson.extraData. */
+export function buildVecinoExtraData(
+  canonical: Record<string, unknown>,
+  extraData: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...extraData };
+  for (const key of ["mesa", "presente", "direccion"] as const) {
+    const v = canonical[key];
+    if (v != null && String(v).trim() !== "") out[key] = String(v).trim();
+  }
+  return out;
 }

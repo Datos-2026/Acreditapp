@@ -5,9 +5,11 @@ import { Icon } from "./Icon";
 
 type Props = {
   eventId: string;
+  eventKind?: "gcba" | "vecinos";
 };
 
-export function ImportWizard({ eventId }: Props) {
+export function ImportWizard({ eventId, eventKind = "gcba" }: Props) {
+  const isVecinos = eventKind === "vecinos";
   const [result, setResult] = useState<null | {
     originalFilename: string;
     sheetName: string;
@@ -100,7 +102,18 @@ export function ImportWizard({ eventId }: Props) {
           Asistente de importación XLSX
         </h2>
         <p className="lead" style={{ marginBottom: 0 }}>
-          Cargá masivamente registros al sistema. La hoja debe llamarse <strong>BASE</strong> y seguir el formato acordado.
+          {isVecinos ? (
+            <>
+              Evento <strong>Vecinos</strong>. La hoja debe llamarse <strong>BASE</strong> con columnas:{" "}
+              <strong>Nombre, Apellido, Dirección, DNI, Teléfono, Mesa, Presente, 0</strong>. La acreditación usa el
+              directorio de vecinos como reserva.
+            </>
+          ) : (
+            <>
+              Evento <strong>GCBA</strong>. La hoja debe llamarse <strong>BASE</strong> y seguir el formato de dotación
+              (CUIL, ministerio, rol, etc.). La acreditación usa el directorio GCBA como reserva.
+            </>
+          )}
         </p>
       </header>
 
@@ -174,7 +187,7 @@ export function ImportWizard({ eventId }: Props) {
               {String(result.summary.validRows)} filas válidas del archivo completo.
             </p>
           </div>
-          <ImportPreviewTable rows={result.previewRows} />
+          <ImportPreviewTable rows={result.previewRows} eventKind={eventKind} />
         </>
       ) : null}
     </div>

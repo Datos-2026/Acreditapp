@@ -14,11 +14,13 @@ export function CreateEventPage() {
   const backHref = location.pathname.includes("/admin/") ? "/admin/eventos" : "/eventos";
   const queryClient = useQueryClient();
   const { setLastEventId } = useLastEvent();
+  const forceVecinos = user?.role === "ADMIN_VECINOS";
   const { register, handleSubmit, formState } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
       status: "draft",
-      description: ""
+      description: "",
+      kind: forceVecinos ? "vecinos" : "gcba"
     }
   });
   const mutation = useMutation({
@@ -32,7 +34,7 @@ export function CreateEventPage() {
       navigate(`/events/${data.id}?tab=terminal`);
     }
   });
-  if (!user?.role || !["SUPERADMIN", "ADMIN_EVENTO"].includes(user.role)) {
+  if (!user?.role || !["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"].includes(user.role)) {
     return <Navigate to="/eventos" replace />;
   }
   return (
@@ -92,6 +94,22 @@ export function CreateEventPage() {
             <option value="closed">Cerrado</option>
             <option value="archived">Archivado</option>
           </select>
+          {user?.role === "SUPERADMIN" ? (
+            <>
+              <label className="label-md field-label field-label--spaced" htmlFor="kind">
+                Tipo de evento
+              </label>
+              <select id="kind" className="input input--boxed" {...register("kind")}>
+                <option value="gcba">Evento GCBA (dotación / CUIL)</option>
+                <option value="vecinos">Evento Vecinos (DNI / comunas)</option>
+              </select>
+              <p style={{ margin: "0.5rem 0 0", fontSize: "0.875rem", color: "var(--on-surface-variant)" }}>
+                Define qué plantilla de importación y qué directorio global se usa al acreditar fuera de base.
+              </p>
+            </>
+          ) : forceVecinos ? (
+            <input type="hidden" {...register("kind")} value="vecinos" />
+          ) : null}
           <div className="row gap create-event-card__actions">
             <button className="btn btn-primary" type="submit" disabled={mutation.isPending}>
               <Icon name="save" />

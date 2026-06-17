@@ -25,7 +25,7 @@ import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
-import type { DirectoryPersonDto, DirectorySearchResult } from "@gcba/shared";
+import type { DirectoryPersonDto, DirectorySearchResult, VecinoDirectoryPersonDto } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
   downloadEventTwoSheetsXlsx,
@@ -41,6 +41,7 @@ type EventPerson = {
   status: "pending" | "accredited";
   source: "manual" | "imported";
   accreditedAt: string | null;
+  extraData?: Record<string, unknown> | null;
   person: {
     cuilNormalized: string;
     firstName: string;
@@ -48,8 +49,25 @@ type EventPerson = {
     dni: string | null;
     company: string | null;
     position: string | null;
+    address?: string | null;
+    comuna?: string | null;
+    phone?: string | null;
+    email?: string | null;
   };
 };
+
+function displayOrDash(value: unknown): string {
+  if (value == null || String(value).trim() === "") return "—";
+  return String(value);
+}
+
+function vecinoMesaFromExtra(extraData?: Record<string, unknown> | null): string {
+  return displayOrDash(extraData?.mesa);
+}
+
+function vecinoPresenteFromExtra(extraData?: Record<string, unknown> | null): string {
+  return displayOrDash(extraData?.presente);
+}
 
 type EventStats = {
   pending?: number;
@@ -157,7 +175,10 @@ export function EventDetailPage() {
   const [downloadScope, setDownloadScope] = useState<"accredited" | "all">("accredited");
   const [downloadBusy, setDownloadBusy] = useState<string | null>(null);
   const navigate = useNavigate();
-  const canManageEvent = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
+  const canManageEvent =
+    user?.role === "SUPERADMIN" ||
+    user?.role === "ADMIN_EVENTO" ||
+    user?.role === "ADMIN_VECINOS";
   const editEventPath = `/eventos/${id}/editar`;
 
   useEffect(() => {
@@ -167,15 +188,14 @@ export function EventDetailPage() {
   }, [slug, setSearchParams]);
 
   useEffect(() => {
-    if (slug === "config" && user?.role !== "SUPERADMIN") {
+    if (
+      slug === "config" &&
+      user?.role !== "SUPERADMIN" &&
+      user?.role !== "ADMIN_VECINOS"
+    ) {
       setSearchParams({ tab: "terminal" }, { replace: true });
     }
   }, [slug, user?.role, setSearchParams]);
-
-  const visibleTabs = useMemo(
-    () => (user?.role === "SUPERADMIN" ? [...tabs] : tabs.filter((t) => t !== "Configuración")),
-    [user?.role]
-  );
 
   useEffect(() => {
     if (id) setLastEventId(id);
@@ -194,6 +214,18 @@ export function EventDetailPage() {
     queryKey: ["event", id],
     queryFn: async () => (await api.get(`/events/${id}`)).data
   });
+
+  const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
+  const isVecinosEvent = eventKind === "vecinos";
+
+  const visibleTabs = useMemo(() => {
+    if (user?.role === "SUPERADMIN") return [...tabs];
+    if (user?.role === "ADMIN_VECINOS" && isVecinosEvent) {
+      return [...tabs];
+    }
+    return tabs.filter((t) => t !== "Configuración");
+  }, [user?.role, isVecinosEvent]);
+
   const peopleQuery = useQuery({
     queryKey: ["people", id, "list"],
     queryFn: async () =>
@@ -261,24 +293,39 @@ export function EventDetailPage() {
   });
 
   type BreakdownResult = {
-    by: "ministerio" | "rol";
+    by: string;
     scope: "accredited" | "all";
     total: number;
     groups: Array<{ key: string; count: number }>;
+    eventKind?: "gcba" | "vecinos";
   };
+
+  const comunaBreakdownQuery = useQuery({
+    queryKey: ["breakdown", id, "comuna", downloadScope],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people/breakdown?by=comuna&scope=${downloadScope}`)).data as BreakdownResult,
+    enabled: tab === "Descargas" && isVecinosEvent
+  });
+
+  const mesaBreakdownQuery = useQuery({
+    queryKey: ["breakdown", id, "mesa", downloadScope],
+    queryFn: async () =>
+      (await api.get(`/events/${id}/people/breakdown?by=mesa&scope=${downloadScope}`)).data as BreakdownResult,
+    enabled: tab === "Descargas" && isVecinosEvent
+  });
 
   const ministerioBreakdownQuery = useQuery({
     queryKey: ["breakdown", id, "ministerio", downloadScope],
     queryFn: async () =>
       (await api.get(`/events/${id}/people/breakdown?by=ministerio&scope=${downloadScope}`)).data as BreakdownResult,
-    enabled: tab === "Descargas"
+    enabled: tab === "Descargas" && !isVecinosEvent
   });
 
   const rolBreakdownQuery = useQuery({
     queryKey: ["breakdown", id, "rol", downloadScope],
     queryFn: async () =>
       (await api.get(`/events/${id}/people/breakdown?by=rol&scope=${downloadScope}`)).data as BreakdownResult,
-    enabled: tab === "Descargas"
+    enabled: tab === "Descargas" && !isVecinosEvent
   });
 
   type LiveSearchRow = {
@@ -286,6 +333,7 @@ export function EventDetailPage() {
     status: "pending" | "accredited";
     source: "manual" | "imported";
     accreditedAt: string | null;
+    extraData?: Record<string, unknown> | null;
     person: {
       cuilNormalized: string;
       firstName: string;
@@ -293,6 +341,10 @@ export function EventDetailPage() {
       dni: string | null;
       company: string | null;
       position: string | null;
+      address?: string | null;
+      comuna?: string | null;
+      phone?: string | null;
+      email?: string | null;
     };
   };
 
@@ -332,11 +384,19 @@ export function EventDetailPage() {
     return data && data.inEvent ? (data.eventPerson as EventPerson) : null;
   }, [exactCuilQuery.data]);
 
-  const directoryMatch = useMemo((): DirectoryPersonDto | null => {
+  const directoryMatch = useMemo((): Extract<DirectorySearchResult, { fromDirectory: true }> | null => {
     const data = exactCuilQuery.data;
-    if (data && !data.inEvent && data.fromDirectory) return data.directoryPerson;
+    if (data && !data.inEvent && data.fromDirectory) return data;
     return null;
   }, [exactCuilQuery.data]);
+
+  const directoryManualPayload = useMemo((): { cuilNormalized?: string; dni?: string } | null => {
+    if (!directoryMatch) return null;
+    if (directoryMatch.directoryKind === "vecinos") {
+      return { dni: directoryMatch.directoryPerson.dni };
+    }
+    return { cuilNormalized: directoryMatch.directoryPerson.cuilNormalized };
+  }, [directoryMatch]);
 
   const displayRows = useMemo(() => {
     if (liveRows.length > 0) return liveRows;
@@ -394,10 +454,8 @@ export function EventDetailPage() {
     }
   });
   const manualFromDirectoryMutation = useMutation({
-    mutationFn: async (cuilNormalized: string) => {
-      const created = await api.post<{ id: string }>(`/events/${id}/people/manual-from-directory`, {
-        cuilNormalized
-      });
+    mutationFn: async (payload: { cuilNormalized?: string; dni?: string }) => {
+      const created = await api.post<{ id: string }>(`/events/${id}/people/manual-from-directory`, payload);
       await api.post(`/events/${id}/people/${created.data.id}/accredit`);
       return created.data;
     },
@@ -406,7 +464,11 @@ export function EventDetailPage() {
       setLastSearchedCuil("");
       setLiveSearchInput("");
       setDebouncedSearch("");
-      setUiNotice("Persona del directorio GCBA acreditada fuera de base.");
+      setUiNotice(
+        isVecinosEvent
+          ? "Persona del directorio de vecinos acreditada fuera de base."
+          : "Persona del directorio GCBA acreditada fuera de base."
+      );
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
@@ -559,7 +621,18 @@ export function EventDetailPage() {
               Evento seleccionado
             </p>
             <h1 className="display-sm">{eventQuery.data?.name}</h1>
-            <p className="lead">{eventQuery.data?.description ?? "Sin descripción"}</p>
+            <p className="lead">
+              {eventQuery.data?.description ?? "Sin descripción"}
+              {isVecinosEvent ? (
+                <span className="status-pill status-pill--active" style={{ marginLeft: "0.75rem", verticalAlign: "middle" }}>
+                  Evento Vecinos
+                </span>
+              ) : (
+                <span className="status-pill" style={{ marginLeft: "0.75rem", verticalAlign: "middle" }}>
+                  Evento GCBA
+                </span>
+              )}
+            </p>
             {isAccreditationClosed ? (
               <p
                 className="message-warning"
@@ -636,7 +709,7 @@ export function EventDetailPage() {
                 autoFocus
                 autoComplete="off"
                 className="input cuil-mega search-input"
-                placeholder="CUIL / DNI / Apellido"
+                placeholder={isVecinosEvent ? "DNI / Apellido" : "CUIL / DNI / Apellido"}
                 value={liveSearchInput}
                 onChange={(e) => {
                   setUiNotice(null);
@@ -654,12 +727,12 @@ export function EventDetailPage() {
                   if (livePeopleQuery.isLoading || exactCuilQuery.isLoading) return;
 
                   if (
-                    directoryMatch &&
+                    directoryManualPayload &&
                     displayRows.length === 0 &&
                     !manualFromDirectoryMutation.isPending
                   ) {
                     e.preventDefault();
-                    manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized);
+                    manualFromDirectoryMutation.mutate(directoryManualPayload);
                     return;
                   }
 
@@ -734,9 +807,12 @@ export function EventDetailPage() {
               <p className="message-error">No se pudo consultar la base en este momento. Reintentá.</p>
             ) : directoryMatch && displayRows.length === 0 ? (
               <div>
-                <p className="label-md field-label">Resultados (directorio GCBA)</p>
+                <p className="label-md field-label">
+                  Resultados (directorio {isVecinosEvent ? "vecinos" : "GCBA"})
+                </p>
                 <p className="message-warning" style={{ marginTop: "0.5rem" }}>
-                  Encontrado en el directorio GCBA, no en la base de este evento. Ver detalle a la derecha.
+                  Encontrado en el directorio {isVecinosEvent ? "de vecinos" : "GCBA"}, no en la base de este evento.
+                  Ver detalle a la derecha.
                 </p>
               </div>
             ) : (
@@ -755,9 +831,19 @@ export function EventDetailPage() {
                       }}
                     >
                       <p className="live-result-card__name">{`${row.person.lastName}, ${row.person.firstName}`}</p>
-                      <p className="live-result-card__meta">{row.person.cuilNormalized}</p>
-                      <p className="live-result-card__meta">{row.person.company ?? "Sin ministerio"}</p>
-                      <p className="live-result-card__meta">{row.person.position ?? "Sin rol"}</p>
+                      {isVecinosEvent ? (
+                        <>
+                          <p className="live-result-card__meta">DNI {row.person.dni ?? "—"}</p>
+                          <p className="live-result-card__meta">{row.person.comuna ?? "Sin comuna"}</p>
+                          <p className="live-result-card__meta">Mesa {vecinoMesaFromExtra(row.extraData)}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="live-result-card__meta">{row.person.cuilNormalized}</p>
+                          <p className="live-result-card__meta">{row.person.company ?? "Sin ministerio"}</p>
+                          <p className="live-result-card__meta">{row.person.position ?? "Sin rol"}</p>
+                        </>
+                      )}
                       <span className={`status-pill status-pill--${row.status === "accredited" ? "active" : "draft"}`}>
                         {row.status === "accredited" ? "Acreditado" : "Pendiente"}
                       </span>
@@ -807,12 +893,16 @@ export function EventDetailPage() {
                 >
                   <strong>ESTE USUARIO ES FUERA DE BASE DE ANOTADOS</strong>
                   <p style={{ margin: "0.35rem 0 0" }}>
-                    Está en el directorio GCBA pero no fue cargado en la base de este evento.
+                    {directoryMatch.directoryKind === "vecinos"
+                      ? "Está en el directorio de vecinos pero no fue cargado en la base de este evento."
+                      : "Está en el directorio GCBA pero no fue cargado en la base de este evento."}
                   </p>
                 </div>
                 <div className="accred-detail__head">
-                  <h3 className="accred-detail__name">{`${directoryMatch.lastName}, ${directoryMatch.firstName}`}</h3>
-                  <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
+                  <h3 className="accred-detail__name">
+                    {`${directoryMatch.directoryPerson.lastName}, ${directoryMatch.directoryPerson.firstName}`}
+                  </h3>
+                  <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"]}>
                     {isAccreditationClosed ? (
                       <span className="status-pill" style={{ background: "var(--warning-container)" }}>
                         Acreditación cerrada
@@ -821,8 +911,10 @@ export function EventDetailPage() {
                       <button
                         className="btn btn-danger"
                         type="button"
-                        disabled={manualFromDirectoryMutation.isPending}
-                        onClick={() => manualFromDirectoryMutation.mutate(directoryMatch.cuilNormalized)}
+                        disabled={manualFromDirectoryMutation.isPending || !directoryManualPayload}
+                        onClick={() =>
+                          directoryManualPayload && manualFromDirectoryMutation.mutate(directoryManualPayload)
+                        }
                       >
                         <Icon name="verified" />
                         {manualFromDirectoryMutation.isPending ? "Procesando…" : "Acreditar fuera de base"}
@@ -831,12 +923,24 @@ export function EventDetailPage() {
                   </RoleGuard>
                 </div>
                 <div className="accred-detail__rows">
-                  <p><strong>CUIL</strong> {directoryMatch.cuilNormalized}</p>
-                  <p><strong>DNI</strong> {directoryMatch.dni ?? "—"}</p>
-                  <p><strong>Ministerio</strong> {directoryMatch.ministerio ?? "—"}</p>
-                  <p><strong>Puesto</strong> {directoryMatch.litPuesto ?? "—"}</p>
-                  <p><strong>Rep.</strong> {directoryMatch.descRep ?? "—"}</p>
-                  <p><strong>Email</strong> {directoryMatch.email ?? "—"}</p>
+                  {directoryMatch.directoryKind === "vecinos" ? (
+                    <>
+                      <p><strong>DNI</strong> {(directoryMatch.directoryPerson as VecinoDirectoryPersonDto).dni}</p>
+                      <p><strong>Domicilio</strong> {(directoryMatch.directoryPerson as VecinoDirectoryPersonDto).address ?? "—"}</p>
+                      <p><strong>Comuna</strong> {(directoryMatch.directoryPerson as VecinoDirectoryPersonDto).comuna ?? "—"}</p>
+                      <p><strong>Teléfono</strong> {(directoryMatch.directoryPerson as VecinoDirectoryPersonDto).phone ?? "—"}</p>
+                      <p><strong>Email</strong> {(directoryMatch.directoryPerson as VecinoDirectoryPersonDto).email ?? "—"}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p><strong>CUIL</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).cuilNormalized}</p>
+                      <p><strong>DNI</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).dni ?? "—"}</p>
+                      <p><strong>Ministerio</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).ministerio ?? "—"}</p>
+                      <p><strong>Puesto</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).litPuesto ?? "—"}</p>
+                      <p><strong>Rep.</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).descRep ?? "—"}</p>
+                      <p><strong>Email</strong> {(directoryMatch.directoryPerson as DirectoryPersonDto).email ?? "—"}</p>
+                    </>
+                  )}
                 </div>
                 {manualFromDirectoryMutation.isError ? (
                   <p className="message-error">No se pudo acreditar desde el directorio. Reintentá.</p>
@@ -862,11 +966,50 @@ export function EventDetailPage() {
                   )}
                 </div>
                 <div className="accred-detail__rows">
-                  <p><strong>CUIL</strong> {selected.person.cuilNormalized}</p>
-                  <p><strong>DNI</strong> {selected.person.dni ?? "—"}</p>
-                  <p><strong>Ministerio</strong> {selected.person.company ?? "—"}</p>
-                  <p><strong>Rol</strong> {selected.person.position ?? "—"}</p>
-                  <p><strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}</p>
+                  {isVecinosEvent ? (
+                    <>
+                      <p>
+                        <strong>DNI</strong> {displayOrDash(selected.person.dni)}
+                      </p>
+                      <p>
+                        <strong>Dirección</strong>{" "}
+                        {displayOrDash(selected.person.address ?? selected.extraData?.direccion)}
+                      </p>
+                      <p>
+                        <strong>Comuna</strong> {displayOrDash(selected.person.comuna)}
+                      </p>
+                      <p>
+                        <strong>Teléfono</strong> {displayOrDash(selected.person.phone)}
+                      </p>
+                      <p>
+                        <strong>Mesa</strong> {vecinoMesaFromExtra(selected.extraData)}
+                      </p>
+                      <p>
+                        <strong>Presente</strong> {vecinoPresenteFromExtra(selected.extraData)}
+                      </p>
+                      <p>
+                        <strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        <strong>CUIL</strong> {selected.person.cuilNormalized}
+                      </p>
+                      <p>
+                        <strong>DNI</strong> {selected.person.dni ?? "—"}
+                      </p>
+                      <p>
+                        <strong>Ministerio</strong> {selected.person.company ?? "—"}
+                      </p>
+                      <p>
+                        <strong>Rol</strong> {selected.person.position ?? "—"}
+                      </p>
+                      <p>
+                        <strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1210,8 +1353,9 @@ export function EventDetailPage() {
                   Panel de descargas
                 </h3>
                 <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9375rem", maxWidth: "60ch" }}>
-                  Exportá personas separadas por ministerio o por ROL. Cada archivo trae una hoja por grupo más
-                  una hoja "Resumen" con los totales.
+                  {isVecinosEvent
+                    ? "Exportá personas separadas por comuna o por mesa. Cada archivo trae una hoja por grupo más una hoja Resumen con los totales."
+                    : "Exportá personas separadas por ministerio o por ROL. Cada archivo trae una hoja por grupo más una hoja Resumen con los totales."}
                 </p>
               </div>
               <div className="seg-control" role="group" aria-label="Alcance de la descarga">
@@ -1234,10 +1378,16 @@ export function EventDetailPage() {
           </div>
 
           <div className="downloads-grid">
-            {([
-              { by: "ministerio" as const, title: "Por ministerio", icon: "apartment", query: ministerioBreakdownQuery },
-              { by: "rol" as const, title: "Por ROL", icon: "badge", query: rolBreakdownQuery }
-            ]).map(({ by, title, icon, query }) => {
+            {(isVecinosEvent
+              ? [
+                  { by: "comuna" as const, title: "Por comuna", icon: "location_city", query: comunaBreakdownQuery },
+                  { by: "mesa" as const, title: "Por mesa", icon: "table_restaurant", query: mesaBreakdownQuery }
+                ]
+              : [
+                  { by: "ministerio" as const, title: "Por ministerio", icon: "apartment", query: ministerioBreakdownQuery },
+                  { by: "rol" as const, title: "Por ROL", icon: "badge", query: rolBreakdownQuery }
+                ]
+            ).map(({ by, title, icon, query }) => {
               const groups = query.data?.groups ?? [];
               const topGroups = groups.slice(0, 8);
               const busyKey = `${by}-${downloadScope}`;
@@ -1358,8 +1508,8 @@ export function EventDetailPage() {
       ) : null}
 
       {tab === "Importar XLSX" ? (
-        <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
-          <ImportWizard eventId={id} />
+        <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
+          <ImportWizard eventId={id} eventKind={eventKind} />
         </RoleGuard>
       ) : null}
 
@@ -1600,7 +1750,7 @@ export function EventDetailPage() {
       ) : null}
 
       {tab === "Configuración" ? (
-        <RoleGuard roles={["SUPERADMIN"]} fallback={<p className="message-warning">Solo el superadmin puede configurar accesos al evento.</p>}>
+        <RoleGuard roles={["SUPERADMIN", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para configurar accesos al evento.</p>}>
           <EventAccessConfig eventId={id} />
         </RoleGuard>
       ) : null}

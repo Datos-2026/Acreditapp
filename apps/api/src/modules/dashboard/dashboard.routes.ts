@@ -29,7 +29,7 @@ function buildTimelineBuckets(dates: Array<Date | null>): Array<{ bucket: string
 
 router.get("/:id/stats", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN", req.auth!.role);
     const eventId = req.params.id;
     const since24h = subDays(new Date(), 1);
     const [
@@ -96,7 +96,7 @@ router.get("/:id/stats", async (req, res, next) => {
 
 router.get("/:id/stats/by-user", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN", req.auth!.role);
     const byUser = await prisma.eventPerson.groupBy({
       by: ["accreditedByUserId"],
       where: {
@@ -126,7 +126,7 @@ router.get("/:id/stats/by-user", async (req, res, next) => {
 
 router.get("/:id/stats/timeline", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN", req.auth!.role);
     const accreditations = await prisma.eventPerson.findMany({
       where: { eventId: req.params.id, status: "accredited", accreditedAt: { not: null } },
       select: { accreditedAt: true }
@@ -139,7 +139,7 @@ router.get("/:id/stats/timeline", async (req, res, next) => {
 
 router.get("/:id/dashboard", async (req, res, next) => {
   try {
-    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN");
+    await ensureEventAccess(req.params.id, req.auth!.id, req.auth!.role === "SUPERADMIN", req.auth!.role);
     const [stats, ranking, accreditations] = await Promise.all([
       prisma.eventPerson.groupBy({
         by: ["status", "source"],

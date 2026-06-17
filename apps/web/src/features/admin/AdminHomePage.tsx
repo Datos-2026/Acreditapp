@@ -52,6 +52,19 @@ export function AdminHomePage() {
         </article>
         <article className="card">
           <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
+            Directorio vecinos
+          </h3>
+          <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>
+            Base global de vecinos (reserva). Quien no está en la base del evento pero sí en el directorio se acredita
+            como fuera de base de anotados.
+          </p>
+          <Link to="/admin/directorio-vecinos" className="btn btn-primary">
+            <Icon name="groups" />
+            Gestionar directorio vecinos
+          </Link>
+        </article>
+        <article className="card">
+          <h3 className="display-sm" style={{ fontSize: "1.2rem", marginTop: 0 }}>
             Podio histórico
           </h3>
           <p style={{ margin: "0.5rem 0 1rem", color: "var(--on-surface-variant)", fontSize: "0.9375rem" }}>

@@ -16,6 +16,7 @@ export type EventCardDto = {
   startAt: string;
   endAt: string;
   status: EventStatus;
+  kind: "gcba" | "vecinos";
   location: string | null;
   totalPeople: number;
   accreditedPeople: number;
@@ -95,6 +96,8 @@ export type PersonSummaryDto = {
   phone?: string | null;
   company?: string | null;
   position?: string | null;
+  address?: string | null;
+  comuna?: string | null;
 };
 
 export type EventPersonDto = {
@@ -102,6 +105,7 @@ export type EventPersonDto = {
   status: "pending" | "accredited";
   source: "manual" | "imported";
   accreditedAt: string | null;
+  extraData?: Record<string, unknown> | null;
   person: PersonSummaryDto;
   accreditedByUser?: { id: string; name: string } | null;
 };
@@ -117,9 +121,33 @@ export type DirectoryPersonDto = {
   email: string | null;
 };
 
+export type VecinoDirectoryPersonDto = {
+  dni: string;
+  firstName: string;
+  lastName: string;
+  address: string | null;
+  comuna: string | null;
+  phone: string | null;
+  email: string | null;
+  participationCount: number | null;
+  claimCount: number | null;
+  codV: string | null;
+};
+
 export type DirectorySearchResult =
   | { inEvent: true; eventPerson: EventPersonDto }
-  | { inEvent: false; fromDirectory: true; directoryPerson: DirectoryPersonDto }
+  | {
+      inEvent: false;
+      fromDirectory: true;
+      directoryKind: "gcba";
+      directoryPerson: DirectoryPersonDto;
+    }
+  | {
+      inEvent: false;
+      fromDirectory: true;
+      directoryKind: "vecinos";
+      directoryPerson: VecinoDirectoryPersonDto;
+    }
   | { inEvent: false; fromDirectory: false };
 
 export type DirectoryStatsDto = {

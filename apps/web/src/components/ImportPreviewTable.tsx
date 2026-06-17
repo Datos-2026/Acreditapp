@@ -11,6 +11,7 @@ type PreviewFilter = "all" | "valid" | "invalid" | "duplicate";
 
 type Props = {
   rows: PreviewRow[];
+  eventKind?: "gcba" | "vecinos";
 };
 
 function isDuplicateRow(row: PreviewRow): boolean {
@@ -25,8 +26,45 @@ function isInvalidOnlyRow(row: PreviewRow): boolean {
   return row.errors.length > 0 && !isDuplicateRow(row);
 }
 
-export function ImportPreviewTable({ rows }: Props) {
+function normalizeHeader(header: string) {
+  return header
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isNoiseColumn(header: string) {
+  const normalized = normalizeHeader(header);
+  if (!normalized) return true;
+  if (normalized === "marca temporal") return true;
+  if (/^__empty(_\d+)?$/.test(normalized)) return true;
+  if (/^column\s*\d+$/i.test(normalized)) return true;
+  if (/^rol\s*\d+$/i.test(normalized)) return true;
+  return false;
+}
+
+function hasExtraColumnData(column: string, previewRows: PreviewRow[]) {
+  return previewRows.some((row) => {
+    const value = row.extraData?.[column];
+    return value != null && String(value).trim() !== "";
+  });
+}
+
+const VECINO_CANONICAL_KEYS = new Set([
+  "dni",
+  "nombre",
+  "apellido",
+  "direccion",
+  "telefono",
+  "mesa",
+  "presente"
+]);
+
+export function ImportPreviewTable({ rows, eventKind = "gcba" }: Props) {
   const [filter, setFilter] = useState<PreviewFilter>("all");
+  const isVecinos = eventKind === "vecinos";
 
   const counts = useMemo(
     () => ({
@@ -51,26 +89,15 @@ export function ImportPreviewTable({ rows }: Props) {
     }
   }, [rows, filter]);
 
-  const normalizeHeader = (header: string) =>
-    header
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const isNoiseColumn = (header: string) => {
-    const normalized = normalizeHeader(header);
-    if (!normalized) return true;
-    if (normalized === "marca temporal") return true;
-    if (/^column\s*\d+$/i.test(normalized)) return true;
-    if (/^rol\s*\d+$/i.test(normalized)) return true;
-    return false;
-  };
-
   const extraColumns = Array.from(
-    new Set(filteredRows.flatMap((row) => Object.keys(row.extraData ?? {})))
-  ).filter((column) => !isNoiseColumn(column));
+    new Set(rows.flatMap((row) => Object.keys(row.extraData ?? {})))
+  )
+    .filter((column) => !isNoiseColumn(column))
+    .filter((column) => hasExtraColumnData(column, rows));
+
+  const vecinoExtraColumns = isVecinos
+    ? extraColumns.filter((column) => !VECINO_CANONICAL_KEYS.has(normalizeHeader(column)))
+    : extraColumns;
 
   const filters: Array<{ id: PreviewFilter; label: string; count: number }> = [
     { id: "all", label: "Todas", count: counts.all },
@@ -78,6 +105,8 @@ export function ImportPreviewTable({ rows }: Props) {
     { id: "invalid", label: "Inválidas", count: counts.invalid },
     { id: "duplicate", label: "Duplicados", count: counts.duplicate }
   ];
+
+  const cell = (value: unknown) => (value == null || String(value).trim() === "" ? "-" : String(value));
 
   return (
     <div className="card">
@@ -103,6 +132,105 @@ export function ImportPreviewTable({ rows }: Props) {
 
       {filteredRows.length === 0 ? (
         <p style={{ margin: 0, color: "var(--on-surface-variant)" }}>No hay filas en este filtro.</p>
+      ) : isVecinos ? (
+        <>
+          <div className="table-wrapper import-preview-table">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Fila</th>
+                  <th>DNI</th>
+                  <th>Nombre</th>
+                  <th>Apellido</th>
+                  <th>Dirección</th>
+                  <th>Teléfono</th>
+                  <th>Mesa</th>
+                  <th>Presente</th>
+                  {vecinoExtraColumns.map((column) => (
+                    <th key={column}>{column}</th>
+                  ))}
+                  <th>Errores</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((row) => (
+                  <tr key={row.rowNumber}>
+                    <td>{row.rowNumber}</td>
+                    <td>{cell(row.canonical.dni)}</td>
+                    <td>{cell(row.canonical.nombre)}</td>
+                    <td>{cell(row.canonical.apellido)}</td>
+                    <td>{cell(row.canonical.direccion)}</td>
+                    <td>{cell(row.canonical.telefono)}</td>
+                    <td>{cell(row.canonical.mesa)}</td>
+                    <td>{cell(row.canonical.presente)}</td>
+                    {vecinoExtraColumns.map((column) => (
+                      <td key={column}>{cell(row.extraData?.[column])}</td>
+                    ))}
+                    <td>{row.errors.length > 0 ? row.errors.join(", ") : "OK"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="import-preview-mobile">
+            {filteredRows.map((row) => (
+              <article key={row.rowNumber} className="import-preview-card">
+                <div className="import-preview-card__head">
+                  <strong>Fila {row.rowNumber}</strong>
+                  <span className={`status-pill ${row.errors.length > 0 ? "status-pill--draft" : "status-pill--active"}`}>
+                    {isDuplicateRow(row) ? "Duplicado" : row.errors.length > 0 ? "Inválida" : "OK"}
+                  </span>
+                </div>
+                <div className="import-preview-card__grid">
+                  <p>
+                    <strong>DNI</strong>
+                    <span>{cell(row.canonical.dni)}</span>
+                  </p>
+                  <p>
+                    <strong>Nombre</strong>
+                    <span>{cell(row.canonical.nombre)}</span>
+                  </p>
+                  <p>
+                    <strong>Apellido</strong>
+                    <span>{cell(row.canonical.apellido)}</span>
+                  </p>
+                  <p>
+                    <strong>Dirección</strong>
+                    <span>{cell(row.canonical.direccion)}</span>
+                  </p>
+                  <p>
+                    <strong>Teléfono</strong>
+                    <span>{cell(row.canonical.telefono)}</span>
+                  </p>
+                  <p>
+                    <strong>Mesa</strong>
+                    <span>{cell(row.canonical.mesa)}</span>
+                  </p>
+                  <p>
+                    <strong>Presente</strong>
+                    <span>{cell(row.canonical.presente)}</span>
+                  </p>
+                </div>
+                {vecinoExtraColumns.length > 0 ? (
+                  <div className="import-preview-card__extra">
+                    {vecinoExtraColumns.map((column) => (
+                      <p key={column}>
+                        <strong>{column}</strong>
+                        <span>{cell(row.extraData?.[column])}</span>
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+                {row.errors.length > 0 ? (
+                  <p className="message-error" style={{ marginTop: "0.5rem", marginBottom: 0 }}>
+                    {row.errors.join(", ")}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </>
       ) : (
         <>
           <div className="table-wrapper import-preview-table">
@@ -128,16 +256,16 @@ export function ImportPreviewTable({ rows }: Props) {
                 {filteredRows.map((row) => (
                   <tr key={row.rowNumber}>
                     <td>{row.rowNumber}</td>
-                    <td>{String(row.canonical.cuil ?? "-")}</td>
-                    <td>{String(row.canonical.nombre ?? "-")}</td>
-                    <td>{String(row.canonical.apellido ?? "-")}</td>
-                    <td>{String(row.canonical.email ?? "-")}</td>
-                    <td>{String(row.canonical.telefono ?? "-")}</td>
-                    <td>{String(row.canonical.empresa ?? "-")}</td>
-                    <td>{String(row.canonical.cargo ?? "-")}</td>
-                    <td className="import-preview-table__cell-wrap">{String(row.canonical.notes ?? "-")}</td>
+                    <td>{cell(row.canonical.cuil)}</td>
+                    <td>{cell(row.canonical.nombre)}</td>
+                    <td>{cell(row.canonical.apellido)}</td>
+                    <td>{cell(row.canonical.email)}</td>
+                    <td>{cell(row.canonical.telefono)}</td>
+                    <td>{cell(row.canonical.empresa)}</td>
+                    <td>{cell(row.canonical.cargo)}</td>
+                    <td className="import-preview-table__cell-wrap">{cell(row.canonical.notes)}</td>
                     {extraColumns.map((column) => (
-                      <td key={column}>{String(row.extraData?.[column] ?? "-")}</td>
+                      <td key={column}>{cell(row.extraData?.[column])}</td>
                     ))}
                     <td>{row.errors.length > 0 ? row.errors.join(", ") : "OK"}</td>
                   </tr>
@@ -158,35 +286,35 @@ export function ImportPreviewTable({ rows }: Props) {
                 <div className="import-preview-card__grid">
                   <p>
                     <strong>CUIL</strong>
-                    <span>{String(row.canonical.cuil ?? "-")}</span>
+                    <span>{cell(row.canonical.cuil)}</span>
                   </p>
                   <p>
                     <strong>Nombre</strong>
-                    <span>{String(row.canonical.nombre ?? "-")}</span>
+                    <span>{cell(row.canonical.nombre)}</span>
                   </p>
                   <p>
                     <strong>Apellido</strong>
-                    <span>{String(row.canonical.apellido ?? "-")}</span>
+                    <span>{cell(row.canonical.apellido)}</span>
                   </p>
                   <p>
                     <strong>Correo</strong>
-                    <span>{String(row.canonical.email ?? "-")}</span>
+                    <span>{cell(row.canonical.email)}</span>
                   </p>
                   <p>
                     <strong>Teléfono</strong>
-                    <span>{String(row.canonical.telefono ?? "-")}</span>
+                    <span>{cell(row.canonical.telefono)}</span>
                   </p>
                   <p>
                     <strong>Ministerio</strong>
-                    <span>{String(row.canonical.empresa ?? "-")}</span>
+                    <span>{cell(row.canonical.empresa)}</span>
                   </p>
                   <p>
                     <strong>Rol</strong>
-                    <span>{String(row.canonical.cargo ?? "-")}</span>
+                    <span>{cell(row.canonical.cargo)}</span>
                   </p>
                   <p>
                     <strong>Pregunta / nota</strong>
-                    <span>{String(row.canonical.notes ?? "-")}</span>
+                    <span>{cell(row.canonical.notes)}</span>
                   </p>
                 </div>
                 {extraColumns.length > 0 ? (
@@ -194,7 +322,7 @@ export function ImportPreviewTable({ rows }: Props) {
                     {extraColumns.map((column) => (
                       <p key={column}>
                         <strong>{column}</strong>
-                        <span>{String(row.extraData?.[column] ?? "-")}</span>
+                        <span>{cell(row.extraData?.[column])}</span>
                       </p>
                     ))}
                   </div>

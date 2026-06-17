@@ -14,6 +14,7 @@ import { EventReportPage } from "../features/event-report/EventReportPage";
 import { UsersAdminPage } from "../features/admin/UsersAdminPage";
 import { AdminHomePage } from "../features/admin/AdminHomePage";
 import { DirectoryAdminPage } from "../features/admin/DirectoryAdminPage";
+import { VecinoDirectoryAdminPage } from "../features/admin/VecinoDirectoryAdminPage";
 import { PodioPage } from "../features/admin/PodioPage";
 
 export function AppRouter() {
@@ -27,6 +28,7 @@ export function AppRouter() {
           <Route index element={<AdminHomePage />} />
           <Route path="usuarios" element={<UsersAdminPage />} />
           <Route path="directorio" element={<DirectoryAdminPage />} />
+          <Route path="directorio-vecinos" element={<VecinoDirectoryAdminPage />} />
           <Route path="podio" element={<PodioPage />} />
           <Route path="eventos" element={<EventsListPage />} />
           <Route path="eventos/calendario" element={<EventsCalendarPage />} />
@@ -44,6 +46,8 @@ export function AppRouter() {
           <Route path="/eventos/calendario" element={<EventsCalendarPage />} />
           <Route path="/eventos/nuevo" element={<CreateEventPage />} />
           <Route path="/eventos/:id/editar" element={<EditEventPage />} />
+          <Route path="/vecinos/directorio" element={<VecinoDirectoryAdminPage />} />
+          <Route path="/vecinos/usuarios" element={<UsersAdminPage scope="vecinos" />} />
         </Route>
       </Route>
       <Route path="*" element={<RoleBasedRedirect />} />

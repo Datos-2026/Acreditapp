@@ -17,10 +17,13 @@ export function EventsBrowseLayout() {
     return <Navigate to={target} replace />;
   }
 
-  const canCreateEvent = user?.role === "ADMIN_EVENTO";
+  const canCreateEvent = user?.role === "ADMIN_EVENTO" || user?.role === "ADMIN_VECINOS";
+  const isAdminVecinos = user?.role === "ADMIN_VECINOS";
   const isList = location.pathname === "/eventos";
   const isCal = location.pathname === "/eventos/calendario";
   const isNuevo = location.pathname === "/eventos/nuevo";
+  const isVecinoDir = location.pathname === "/vecinos/directorio";
+  const isVecinoUsers = location.pathname === "/vecinos/usuarios";
   const navBtn = (active: boolean) =>
     `btn btn-ghost events-browse-nav__link${active ? " events-browse-nav__link--active" : ""}`;
 
@@ -45,6 +48,18 @@ export function EventsBrowseLayout() {
                   <Icon name="add_circle" />
                   Nuevo evento
                 </Link>
+              ) : null}
+              {isAdminVecinos ? (
+                <>
+                  <Link to="/vecinos/directorio" className={navBtn(isVecinoDir)}>
+                    <Icon name="groups" />
+                    Directorio vecinos
+                  </Link>
+                  <Link to="/vecinos/usuarios" className={navBtn(isVecinoUsers)}>
+                    <Icon name="manage_accounts" />
+                    Usuarios
+                  </Link>
+                </>
               ) : null}
             </nav>
           </div>

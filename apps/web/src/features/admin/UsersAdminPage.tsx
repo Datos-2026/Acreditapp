@@ -10,6 +10,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 const ROLE_LABEL: Record<string, string> = {
   SUPERADMIN: "Superadmin",
   ADMIN_EVENTO: "Admin de evento",
+  ADMIN_VECINOS: "Admin vecinos",
   ACREDITADOR: "Acreditador",
   LECTURA: "Solo lectura",
   INFORMADOR: "Informador (solo informes)"
@@ -29,9 +30,13 @@ function errMessage(err: unknown, fallback: string): string {
   return ax.response?.data?.message ?? ax.response?.data?.error ?? fallback;
 }
 
-export function UsersAdminPage() {
+export function UsersAdminPage({ scope = "admin" }: { scope?: "admin" | "vecinos" }) {
   const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
+  const isVecinosScope = scope === "vecinos";
+  const creatableRoles: AppRole[] = isVecinosScope
+    ? ["ACREDITADOR", "LECTURA", "INFORMADOR"]
+    : (ROLE_OPTIONS.filter((r) => r !== "SUPERADMIN" && r !== "ADMIN_VECINOS") as AppRole[]);
 
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
@@ -116,7 +121,11 @@ export function UsersAdminPage() {
     }
   });
 
-  if (authUser?.role !== "SUPERADMIN") {
+  if (isVecinosScope) {
+    if (authUser?.role !== "ADMIN_VECINOS" && authUser?.role !== "SUPERADMIN") {
+      return <Navigate to="/eventos" replace />;
+    }
+  } else if (authUser?.role !== "SUPERADMIN") {
     return <Navigate to="/eventos" replace />;
   }
 
@@ -221,7 +230,7 @@ export function UsersAdminPage() {
               value={newRole}
               onChange={(e) => setNewRole(e.target.value as AppRole)}
             >
-              {ROLE_OPTIONS.map((r) => (
+              {creatableRoles.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r] ?? r}
                 </option>
