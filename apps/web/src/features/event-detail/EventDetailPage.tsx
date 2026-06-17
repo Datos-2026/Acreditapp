@@ -26,6 +26,7 @@ import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
 import type { DirectoryPersonDto, DirectorySearchResult, VecinoDirectoryPersonDto } from "@gcba/shared";
+import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
   downloadEventTwoSheetsXlsx,
@@ -35,6 +36,7 @@ import {
 import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
+import { VecinoMesasPanel } from "./VecinoMesasPanel";
 
 type EventPerson = {
   id: string;
@@ -217,6 +219,9 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
+  const canConfigureVecinosOps =
+    isVecinosEvent &&
+    Boolean(user?.role && ["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"].includes(user.role));
 
   const visibleTabs = useMemo(() => {
     if (user?.role === "SUPERADMIN") return [...tabs];
@@ -435,14 +440,22 @@ export function EventDetailPage() {
     setUiNotice(null);
   };
   const accreditMutation = useMutation({
-    mutationFn: async () => (await api.post(`/events/${id}/people/${selected?.id}/accredit`)).data,
-    onSuccess: () => {
+    mutationFn: async () =>
+      (await api.post<EventPerson>(`/events/${id}/people/${selected?.id}/accredit`)).data,
+    onSuccess: (data) => {
       setShowConfirm(false);
-      setUiNotice("Persona acreditada correctamente.");
+      const mesa = vecinoMesaFromExtra(data.extraData);
+      setUiNotice(
+        isVecinosEvent && mesa !== "—"
+          ? `Persona acreditada. Asignada a mesa ${mesa}.`
+          : "Persona acreditada correctamente."
+      );
+      setSelected(data);
       queryClient.invalidateQueries({ queryKey: ["people", id] });
       queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
       queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       queryClient.invalidateQueries({ queryKey: ["stats", id] });
+      queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
   const manualMutation = useMutation({
@@ -469,6 +482,7 @@ export function EventDetailPage() {
           ? "Persona del directorio de vecinos acreditada fuera de base."
           : "Persona del directorio GCBA acreditada fuera de base."
       );
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
@@ -698,8 +712,8 @@ export function EventDetailPage() {
       ) : null}
 
       {tab === "Acreditar" ? (
-        <section className="search-card">
-          <section className="terminal-section card accred-search-card">
+        <section className="search-card accred-search-row">
+          <section className="terminal-section card accred-search-card accred-search-card--main">
             <label className="label-md field-label search-label" htmlFor="live-cuil-search">
               Buscar en base
             </label>
@@ -772,6 +786,15 @@ export function EventDetailPage() {
               Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo).
             </p>
           </section>
+          {isVecinosEvent ? (
+            <VecinoMesasPanel
+              eventId={id}
+              mesaCount={eventQuery.data?.mesaCount}
+              canConfigure={canConfigureVecinosOps}
+              compact
+              placement="toolbar"
+            />
+          ) : null}
         </section>
       ) : null}
 
@@ -835,7 +858,9 @@ export function EventDetailPage() {
                         <>
                           <p className="live-result-card__meta">DNI {row.person.dni ?? "—"}</p>
                           <p className="live-result-card__meta">{row.person.comuna ?? "Sin comuna"}</p>
-                          <p className="live-result-card__meta">Mesa {vecinoMesaFromExtra(row.extraData)}</p>
+                      {row.status === "accredited" ? (
+                        <p className="live-result-card__meta">Mesa {vecinoMesaFromExtra(row.extraData)}</p>
+                      ) : null}
                         </>
                       ) : (
                         <>
@@ -1134,7 +1159,7 @@ export function EventDetailPage() {
           <DataTable
             rows={peopleRows}
             columns={[
-              { key: "cuil", header: "CUIL", render: (row) => row.person.cuilNormalized },
+              { key: "cuil", header: documentColumnLabel(eventKind), render: (row) => displayPersonDocument(row.person, eventKind) },
               { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
               { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
               { key: "estado", header: "Estado", render: (row) => row.status },
@@ -1153,7 +1178,7 @@ export function EventDetailPage() {
                           onClick={() =>
                             setDeletePersonTarget({
                               id: row.id,
-                              label: `${row.person.lastName}, ${row.person.firstName} (${row.person.cuilNormalized})`
+                              label: `${row.person.lastName}, ${row.person.firstName} (${displayPersonDocument(row.person, eventKind)})`
                             })
                           }
                         >
@@ -1245,7 +1270,7 @@ export function EventDetailPage() {
             <DataTable
               rows={accreditedImportedQuery.data?.rows ?? []}
               columns={[
-                { key: "cuil", header: "CUIL", render: (row) => row.person.cuilNormalized },
+                { key: "cuil", header: documentColumnLabel(eventKind), render: (row) => displayPersonDocument(row.person, eventKind) },
                 { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
                 { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
                 {
@@ -1324,7 +1349,7 @@ export function EventDetailPage() {
             <DataTable
               rows={accreditedManualQuery.data?.rows ?? []}
               columns={[
-                { key: "cuil", header: "CUIL", render: (row) => row.person.cuilNormalized },
+                { key: "cuil", header: documentColumnLabel(eventKind), render: (row) => displayPersonDocument(row.person, eventKind) },
                 { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
                 { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
                 {

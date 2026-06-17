@@ -47,6 +47,21 @@ export function syntheticCuilFromDni(dni: string): string {
   return `00${digits.padStart(9, "0")}`;
 }
 
+/** Documento legible en UI según tipo de evento (DNI para vecinos, CUIL para GCBA). */
+export function displayPersonDocument(
+  person: { cuilNormalized: string; dni?: string | null },
+  eventKind: "gcba" | "vecinos"
+): string {
+  if (eventKind === "vecinos") {
+    return person.dni ?? dniFromCuil(person.cuilNormalized) ?? person.cuilNormalized;
+  }
+  return person.cuilNormalized;
+}
+
+export function documentColumnLabel(eventKind: "gcba" | "vecinos"): string {
+  return eventKind === "vecinos" ? "DNI" : "CUIL";
+}
+
 export type ManualDocument = {
   cuilNormalized: string;
   dni: string | null;

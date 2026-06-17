@@ -237,9 +237,6 @@ export function normalizeVecinoImportCanonical(canonical: Record<string, unknown
   if (normalized.direccion != null && normalized.direccion !== "") {
     normalized.direccion = String(normalized.direccion).trim();
   }
-  if (normalized.mesa != null && normalized.mesa !== "") {
-    normalized.mesa = String(normalized.mesa).trim();
-  }
   if (normalized.presente != null && normalized.presente !== "") {
     normalized.presente = String(normalized.presente).trim();
   }
@@ -275,5 +272,5 @@ export function buildVecinoExtraData(
   canonical: Record<string, unknown>,
   extraData: Record<string, unknown>
 ): Record<string, unknown> {
-  return buildImportExtraData(canonical, extraData, ["mesa", "presente", "direccion"]);
+  return buildImportExtraData(canonical, extraData, ["presente", "direccion"]);
 }

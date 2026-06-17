@@ -105,7 +105,7 @@ export function ImportWizard({ eventId, eventKind = "gcba" }: Props) {
           {isVecinos ? (
             <>
               Evento <strong>Vecinos</strong>. La hoja debe llamarse <strong>BASE</strong> con columnas:{" "}
-              <strong>Nombre, Apellido, Dirección, DNI, Teléfono, Mesa, Presente, 0</strong>. La acreditación usa el
+              <strong>Nombre, Apellido, Dirección, DNI, Teléfono, Presente, 0</strong>. La mesa se asigna al acreditar. La acreditación usa el
               directorio de vecinos como reserva.
             </>
           ) : (

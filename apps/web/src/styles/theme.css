@@ -2338,6 +2338,18 @@ a.tab-btn--informe {
   margin-bottom: 0.45rem;
 }
 
+.accred-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.accred-search-row .accred-search-card--main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .search-card .terminal-section {
   margin: 0;
 }
@@ -2598,6 +2610,162 @@ a.tab-btn--informe {
   font-style: italic;
   color: var(--on-surface-variant);
   justify-content: flex-start !important;
+}
+
+.mesa-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.mesa-stat-card {
+  border: 1px solid var(--outline, rgba(0, 0, 0, 0.12));
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface-container-lowest, #fff);
+}
+
+.mesa-stat-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.mesa-stat-card__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-container-high, #e8e8e8);
+  overflow: hidden;
+}
+
+.mesa-stat-card__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary-container, #4a9eff);
+  min-width: 4px;
+}
+
+.mesa-panel-compact {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--outline, rgba(0, 0, 0, 0.12));
+}
+
+.mesa-panel-compact--toolbar {
+  flex: 0 0 auto;
+  width: min(100%, 300px);
+  margin-top: 0;
+  padding: 0.65rem 0.75rem;
+  border-top: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+}
+
+.mesa-panel-compact--toolbar .mesa-panel-compact__chips {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.mesa-panel-compact--toolbar .mesa-chip {
+  padding: 0.28rem 0.35rem;
+}
+
+.mesa-panel-compact--toolbar .mesa-panel-compact__head {
+  margin-bottom: 0.45rem;
+}
+
+.mesa-panel-compact--toolbar .mesa-panel-compact__sheet {
+  display: none;
+}
+
+.mesa-panel-compact__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.mesa-panel-compact__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.mesa-panel-compact__meta {
+  font-size: 0.75rem;
+  color: var(--on-surface-variant);
+  font-weight: 600;
+}
+
+.mesa-panel-compact__chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.mesa-chip {
+  border: 1px solid var(--outline, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  background: var(--surface-container-lowest, #fff);
+  font-size: 0.7rem;
+}
+
+.mesa-chip__label {
+  font-weight: 700;
+  margin-right: 0.25rem;
+}
+
+.mesa-chip__count {
+  font-weight: 800;
+  color: var(--primary-container);
+}
+
+.mesa-chip__bar {
+  display: block;
+  height: 4px;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: var(--surface-container-high, #e8e8e8);
+  overflow: hidden;
+}
+
+.mesa-chip__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary-container, #4a9eff);
+  min-width: 2px;
+}
+
+.mesa-panel-compact__setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.mesa-panel-compact__config summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--on-surface-variant);
+  font-weight: 600;
+  user-select: none;
+}
+
+.mesa-panel-compact__loading,
+.mesa-panel-compact__sheet {
+  color: var(--on-surface-variant);
 }
 
 .seg-control {

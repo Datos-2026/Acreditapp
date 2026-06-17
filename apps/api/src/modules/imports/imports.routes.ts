@@ -55,7 +55,6 @@ const vecinoCanonicalFields = [
   "email",
   "telefono",
   "direccion",
-  "mesa",
   "presente",
   "empresa",
   "cargo",
@@ -326,10 +325,6 @@ function autoDetectVecinoMapping(headers: string[]) {
     }
     if (normalized.includes("direccion") || normalized.includes("domicilio")) {
       map[header] = "direccion";
-      return;
-    }
-    if (normalized.includes("mesa")) {
-      map[header] = "mesa";
       return;
     }
     if (normalized.includes("mail") || normalized.includes("correo") || normalized === "email") {

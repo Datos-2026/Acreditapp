@@ -58,7 +58,6 @@ const VECINO_CANONICAL_KEYS = new Set([
   "apellido",
   "direccion",
   "telefono",
-  "mesa",
   "presente"
 ]);
 
@@ -144,7 +143,6 @@ export function ImportPreviewTable({ rows, eventKind = "gcba" }: Props) {
                   <th>Apellido</th>
                   <th>Dirección</th>
                   <th>Teléfono</th>
-                  <th>Mesa</th>
                   <th>Presente</th>
                   {vecinoExtraColumns.map((column) => (
                     <th key={column}>{column}</th>
@@ -161,7 +159,6 @@ export function ImportPreviewTable({ rows, eventKind = "gcba" }: Props) {
                     <td>{cell(row.canonical.apellido)}</td>
                     <td>{cell(row.canonical.direccion)}</td>
                     <td>{cell(row.canonical.telefono)}</td>
-                    <td>{cell(row.canonical.mesa)}</td>
                     <td>{cell(row.canonical.presente)}</td>
                     {vecinoExtraColumns.map((column) => (
                       <td key={column}>{cell(row.extraData?.[column])}</td>
@@ -202,10 +199,6 @@ export function ImportPreviewTable({ rows, eventKind = "gcba" }: Props) {
                   <p>
                     <strong>Teléfono</strong>
                     <span>{cell(row.canonical.telefono)}</span>
-                  </p>
-                  <p>
-                    <strong>Mesa</strong>
-                    <span>{cell(row.canonical.mesa)}</span>
                   </p>
                   <p>
                     <strong>Presente</strong>

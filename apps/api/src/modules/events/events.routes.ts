@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import type { EventReportAiAnalysis } from "@gcba/shared";
-import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil, dniFromCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
+import { normalizeCuil, manualPersonSchema, parseManualDocument, isValidCuil, dniFromCuil, normalizeDni, syntheticCuilFromDni, displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import { EventKind, EventPersonStatus, EventStatus, Prisma, UserRole } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
@@ -11,6 +11,7 @@ import { rejectInformadorExceptReportRead } from "../../middlewares/informador-s
 import { requireRoles } from "../../middlewares/rbac";
 import { validateBody } from "../../middlewares/validate";
 import { createAuditLog } from "../../lib/audit";
+import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { ensureEventAccess } from "./event-access";
 import {
@@ -30,6 +31,13 @@ import {
   buildTwoSheetsXlsxBuffer,
   personExportInclude as twoSheetsPersonInclude
 } from "./two-sheets-export";
+import {
+  getMesaStats,
+  mergeMesaIntoExtraData,
+  mesaLabel,
+  pickMesaWithLeastLoad
+} from "./mesa-assignment";
+import { appendVecinoAccreditationToSheet, createVecinoEventSheet, ensureVecinoEventSheet, formatGoogleSheetsError, getVecinoSheetError, isGoogleSheetsConfigured, isUnprovisionedSheetName, recordVecinoSheetError } from "./google-sheets-sync";
 
 const router = Router();
 router.use(requireAuth);
@@ -66,7 +74,7 @@ const personExportInclude = {
 
 type EventPersonExportRow = Prisma.EventPersonGetPayload<{ include: typeof personExportInclude }>;
 
-function mapEventPersonToExportRow(r: EventPersonExportRow): string[] {
+function mapEventPersonToExportRow(r: EventPersonExportRow, eventKind: EventKind): string[] {
   const origen = r.source === "manual" ? "manual" : "importado";
   const fueraDeBase = r.source === "manual" ? "si" : "no";
   const accAt = r.accreditedAt
@@ -74,7 +82,7 @@ function mapEventPersonToExportRow(r: EventPersonExportRow): string[] {
     : "";
   const by = r.accreditedByUser?.name ?? r.accreditedByUser?.email ?? "";
   return [
-    r.person.cuilNormalized,
+    displayPersonDocument(r.person, eventKind),
     r.person.lastName,
     r.person.firstName,
     r.person.dni ?? "",
@@ -90,8 +98,10 @@ function mapEventPersonToExportRow(r: EventPersonExportRow): string[] {
   ];
 }
 
-function buildPersonExportXlsxBuffer(sheetName: string, dataRows: string[][]): Buffer {
-  const sheet = XLSX.utils.aoa_to_sheet([Array.from(PERSON_EXPORT_HEADER), ...dataRows]);
+function buildPersonExportXlsxBuffer(sheetName: string, dataRows: string[][], eventKind: EventKind): Buffer {
+  const header: string[] = [...PERSON_EXPORT_HEADER];
+  header[0] = documentColumnLabel(eventKind);
+  const sheet = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
@@ -104,7 +114,13 @@ const eventSchema = z.object({
   endAt: z.string().datetime(),
   location: z.string().optional().nullable(),
   status: z.nativeEnum(EventStatus).default(EventStatus.draft),
-  kind: z.enum(["gcba", "vecinos"]).default("gcba")
+  kind: z.enum(["gcba", "vecinos"]).default("gcba"),
+  mesaCount: z.number().int().min(1).max(99).optional().nullable(),
+  googleSheetName: z.string().max(100).optional().nullable()
+});
+
+const vecinosMesaConfigSchema = z.object({
+  mesaCount: z.number().int().min(1).max(99)
 });
 
 const assignUsersSchema = z.object({
@@ -206,11 +222,22 @@ router.post(
   try {
     const kind = (req.body.kind ?? "gcba") as EventKind;
     assertRoleCanCreateEventKind(req.auth!.role, kind);
+
+    let googleSheetName: string | null = null;
+    if (kind === "vecinos" && isGoogleSheetsConfigured()) {
+      try {
+        googleSheetName = await createVecinoEventSheet(new Date(req.body.startAt), req.body.name);
+      } catch (err) {
+        logger.warn({ err, eventName: req.body.name }, "No se pudo crear hoja en Google Sheets al crear evento");
+      }
+    }
+
     const event = await prisma.event.create({
       data: {
         ...req.body,
         kind,
-        slug: slugFromEventName(req.body.name)
+        slug: slugFromEventName(req.body.name),
+        googleSheetName
       }
     });
     if (req.auth!.role === UserRole.ADMIN_VECINOS || req.auth!.role === UserRole.ADMIN_EVENTO) {
@@ -252,7 +279,7 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       : ({} as const);
 
     const [event, rows] = await Promise.all([
-      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true, kind: true } }),
       prisma.eventPerson.findMany({
         where: {
           eventId: req.params.id,
@@ -264,7 +291,7 @@ router.get("/:id/export/accredited", async (req, res, next) => {
       })
     ]);
 
-    const dataRows = rows.map(mapEventPersonToExportRow);
+    const dataRows = rows.map((row) => mapEventPersonToExportRow(row, event!.kind));
 
     const suffix = fileSuffixFromEvent(event);
     const filename = manualOnly
@@ -273,7 +300,7 @@ router.get("/:id/export/accredited", async (req, res, next) => {
         ? `acreditados-desde-base__${suffix}.xlsx`
         : `acreditados-todos__${suffix}.xlsx`;
 
-    const buffer = buildPersonExportXlsxBuffer("Acreditados", dataRows);
+    const buffer = buildPersonExportXlsxBuffer("Acreditados", dataRows, event!.kind);
 
     await createAuditLog({
       req,
@@ -365,7 +392,7 @@ router.get("/:id/export/people", async (req, res, next) => {
     const importedOnly = String(req.query.importedOnly ?? "true") === "true";
 
     const [event, rows] = await Promise.all([
-      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } }),
+      prisma.event.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true, kind: true } }),
       prisma.eventPerson.findMany({
         where: {
           eventId: req.params.id,
@@ -376,12 +403,12 @@ router.get("/:id/export/people", async (req, res, next) => {
       })
     ]);
 
-    const dataRows = rows.map(mapEventPersonToExportRow);
+    const dataRows = rows.map((row) => mapEventPersonToExportRow(row, event!.kind));
     const suffix = fileSuffixFromEvent(event);
     const filename = importedOnly
       ? `base-evento-importada__${suffix}.xlsx`
       : `nomina-evento-completa__${suffix}.xlsx`;
-    const buffer = buildPersonExportXlsxBuffer("BASE", dataRows);
+    const buffer = buildPersonExportXlsxBuffer("BASE", dataRows, event!.kind);
 
     await createAuditLog({
       req,
@@ -515,6 +542,81 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
   }
 });
 
+/** Estado de mesas (solo eventos vecinos con mesaCount configurado). */
+router.get("/:id/mesas/stats", async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { kind: true, mesaCount: true, googleSheetName: true }
+    });
+    if (event.kind !== "vecinos") {
+      res.status(400).json({ message: "Las mesas solo aplican a eventos vecinos" });
+      return;
+    }
+    if (!event.mesaCount || event.mesaCount < 1) {
+      res.json({
+        mesaCount: null,
+        mesas: [],
+        totalAccredited: 0,
+        totalAssigned: 0,
+        unassignedAccredited: 0,
+        autoAssignEnabled: false,
+        sheetsConfigured: isGoogleSheetsConfigured(),
+        googleSheetsEnabled: isGoogleSheetsConfigured(),
+        googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+        lastSheetError: getVecinoSheetError(req.params.id)
+      });
+      return;
+    }
+    const stats = await getMesaStats(req.params.id, event.mesaCount);
+    res.json({
+      ...stats,
+      autoAssignEnabled: true,
+      sheetsConfigured: isGoogleSheetsConfigured(),
+      googleSheetsEnabled: isGoogleSheetsConfigured(),
+      googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+      lastSheetError: getVecinoSheetError(req.params.id)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** Configurar cantidad de mesas al iniciar acreditación (vecinos). */
+router.patch(
+  "/:id/mesas/config",
+  requireRoles(...ACCREDIT_ROLES),
+  validateBody(vecinosMesaConfigSchema),
+  async (req, res, next) => {
+    try {
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+      const event = await prisma.event.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: { kind: true }
+      });
+      if (event.kind !== "vecinos") {
+        res.status(400).json({ message: "Las mesas solo aplican a eventos vecinos" });
+        return;
+      }
+      const updated = await prisma.event.update({
+        where: { id: req.params.id },
+        data: { mesaCount: req.body.mesaCount }
+      });
+      await createAuditLog({
+        req,
+        action: "event.mesaConfig",
+        entityType: "event",
+        entityId: updated.id,
+        metadata: { mesaCount: req.body.mesaCount }
+      });
+      res.json({ mesaCount: updated.mesaCount });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /** XLSX con una hoja por grupo (ministerio o ROL) + hoja Resumen con los conteos. */
 router.get("/:id/export/grouped", async (req, res, next) => {
   try {
@@ -562,7 +664,9 @@ router.get("/:id/export/grouped", async (req, res, next) => {
     );
 
     for (const [name, gr] of sortedGroups) {
-      const aoa = [Array.from(PERSON_EXPORT_HEADER), ...gr.map(mapEventPersonToExportRow)];
+      const header: string[] = [...PERSON_EXPORT_HEADER];
+      header[0] = documentColumnLabel(eventMeta.kind);
+      const aoa = [header, ...gr.map((row) => mapEventPersonToExportRow(row, eventMeta.kind))];
       XLSX.utils.book_append_sheet(
         workbook,
         XLSX.utils.aoa_to_sheet(aoa),
@@ -1325,11 +1429,30 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     await assertEventAcceptingAccreditations(req.params.id);
-    const current = await prisma.eventPerson.findUniqueOrThrow({
-      where: { id: req.params.eventPersonId }
-    });
+    const [current, event] = await Promise.all([
+      prisma.eventPerson.findUniqueOrThrow({ where: { id: req.params.eventPersonId } }),
+      prisma.event.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          kind: true,
+          name: true,
+          startAt: true,
+          mesaCount: true,
+          googleSheetName: true
+        }
+      })
+    ]);
     if (current.eventId !== req.params.id) throw new AppError("Registro fuera de evento", 400);
     ensureNotAlreadyAccredited(current.status);
+
+    let extraData = (current.extraData as Record<string, unknown> | null) ?? {};
+    let assignedMesa: number | null = null;
+
+    if (event.kind === "vecinos" && event.mesaCount && event.mesaCount > 0) {
+      assignedMesa = await pickMesaWithLeastLoad(req.params.id, event.mesaCount);
+      extraData = mergeMesaIntoExtraData(extraData, assignedMesa);
+    }
 
     const eventPerson = await prisma.eventPerson.update({
       where: { id: req.params.eventPersonId },
@@ -1337,15 +1460,30 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
         status: "accredited",
         accreditedAt: new Date(),
         accreditedByUserId: req.auth!.id,
-        accreditationNotes: req.body?.notes ?? null
+        accreditationNotes: req.body?.notes ?? null,
+        extraData: Object.keys(extraData).length > 0 ? (extraData as Prisma.InputJsonValue) : Prisma.JsonNull
       },
       include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
     });
+
+    if (event.kind === "vecinos" && isGoogleSheetsConfigured()) {
+      void (async () => {
+        try {
+          const sheetName = await ensureVecinoEventSheet(event);
+          if (sheetName) await appendVecinoAccreditationToSheet(req.params.id, sheetName, eventPerson);
+        } catch (err) {
+          recordVecinoSheetError(req.params.id, formatGoogleSheetsError(err));
+          logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a Google Sheets");
+        }
+      })();
+    }
+
     await createAuditLog({
       req,
       action: "eventPerson.accredit",
       entityType: "eventPerson",
-      entityId: eventPerson.id
+      entityId: eventPerson.id,
+      metadata: assignedMesa != null ? { assignedMesa: mesaLabel(assignedMesa) } : undefined
     });
     res.json(eventPerson);
   } catch (error) {

@@ -18,8 +18,30 @@ export type EventCardDto = {
   status: EventStatus;
   kind: "gcba" | "vecinos";
   location: string | null;
+  mesaCount?: number | null;
+  googleSheetName?: string | null;
   totalPeople: number;
   accreditedPeople: number;
+};
+
+export type MesaStatRowDto = {
+  mesa: string;
+  mesaNumber: number;
+  accredited: number;
+  assigned: number;
+};
+
+export type MesaStatsDto = {
+  mesaCount: number | null;
+  mesas: MesaStatRowDto[];
+  totalAccredited: number;
+  totalAssigned: number;
+  unassignedAccredited: number;
+  autoAssignEnabled: boolean;
+  sheetsConfigured: boolean;
+  googleSheetsEnabled: boolean;
+  googleSheetName?: string | null;
+  lastSheetError?: string | null;
 };
 
 /** Franja horaria de acreditaciones (informe). */

@@ -1,8 +1,38 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { logger } from "../lib/logger";
 
 dotenv.config({ path: "../../.env" });
 dotenv.config();
+
+function parseGoogleServiceAccountJson(raw: string | undefined): Record<string, string> | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (typeof parsed.client_email !== "string" || typeof parsed.private_key !== "string") {
+      logger.warn("GOOGLE_SERVICE_ACCOUNT_JSON no contiene client_email o private_key");
+      return null;
+    }
+    return {
+      type: String(parsed.type ?? "service_account"),
+      project_id: String(parsed.project_id ?? ""),
+      private_key_id: String(parsed.private_key_id ?? ""),
+      private_key: parsed.private_key.replace(/\\n/g, "\n"),
+      client_email: parsed.client_email,
+      client_id: String(parsed.client_id ?? ""),
+      auth_uri: String(parsed.auth_uri ?? "https://accounts.google.com/o/oauth2/auth"),
+      token_uri: String(parsed.token_uri ?? "https://oauth2.googleapis.com/token"),
+      auth_provider_x509_cert_url: String(
+        parsed.auth_provider_x509_cert_url ?? "https://www.googleapis.com/oauth2/v1/certs"
+      ),
+      client_x509_cert_url: String(parsed.client_x509_cert_url ?? "")
+    };
+  } catch (err) {
+    logger.warn({ err }, "No se pudo parsear GOOGLE_SERVICE_ACCOUNT_JSON al iniciar la API");
+    return null;
+  }
+}
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -27,7 +57,14 @@ const envSchema = z.object({
    * Modelo para el informe IA (Gemini API). Por defecto: Gemma 4 31B instruct.
    * @see https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api
    */
-  GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it")
+  GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it"),
+  /**
+   * JSON de cuenta de servicio de Google (stringificado) para sincronizar acreditados vecinos a Sheets.
+   * Compartí el spreadsheet con el client_email de la cuenta.
+   */
+  GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** ID del libro de Google Sheets único para todos los eventos vecinos (una hoja por evento). */
+  GOOGLE_SPREADSHEET_ID: z.string().optional()
 });
 
 const raw = envSchema.parse(process.env);
@@ -49,8 +86,17 @@ function expandLocalViteOrigins(origins: string[]): string[] {
   return [...out];
 }
 
+const googleServiceAccountCredentials = parseGoogleServiceAccountJson(raw.GOOGLE_SERVICE_ACCOUNT_JSON);
+
+if (raw.GOOGLE_SPREADSHEET_ID?.trim() && !googleServiceAccountCredentials) {
+  logger.warn(
+    "GOOGLE_SPREADSHEET_ID está definido pero GOOGLE_SERVICE_ACCOUNT_JSON no es válido; Google Sheets deshabilitado"
+  );
+}
+
 export const env = {
   ...raw,
+  GOOGLE_SERVICE_ACCOUNT_CREDENTIALS: googleServiceAccountCredentials,
   CORS_ORIGINS: expandLocalViteOrigins(
     raw.CORS_ORIGIN.split(",")
       .map((s) => s.trim())

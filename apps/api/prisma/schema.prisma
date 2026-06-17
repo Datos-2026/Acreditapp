@@ -69,6 +69,12 @@ model Event {
   location         String?
   status           EventStatus         @default(draft)
   kind             EventKind           @default(gcba)
+  /** Cantidad de mesas para asignación automática (solo eventos vecinos). */
+  mesaCount        Int?
+  /** ID del Google Spreadsheet para sincronizar acreditados (solo vecinos). */
+  googleSpreadsheetId String?
+  /** Nombre de la hoja dentro del spreadsheet (una por evento vecinos). */
+  googleSheetName  String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   eventUsers       EventUser[]
