@@ -13,3 +13,12 @@ export function buildCuilSearch(cuilNormalized: string) {
     }
   };
 }
+
+/** Quita mesa del extraData al deshacer una acreditación. */
+export function extraDataWithoutMesa(
+  extraData: Record<string, unknown> | null | undefined
+): Record<string, unknown> | null {
+  if (!extraData || typeof extraData !== "object") return null;
+  const { mesa: _mesa, ...rest } = extraData;
+  return Object.keys(rest).length > 0 ? rest : null;
+}

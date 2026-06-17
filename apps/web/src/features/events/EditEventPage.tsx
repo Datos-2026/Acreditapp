@@ -6,7 +6,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from "react-route
 import { api } from "../../lib/api";
 import { useAuth } from "../auth/auth-context";
 import { Icon } from "../../components/Icon";
-import { eventFormSchema, eventFormToPayload, toDatetimeLocalValue, type EventFormValues } from "./eventForm";
+import { eventFormSchema, eventFormToPatchPayload, toDatetimeLocalValue, type EventFormValues } from "./eventForm";
 
 type EventDto = {
   id: string;
@@ -52,7 +52,7 @@ export function EditEventPage() {
 
   const mutation = useMutation({
     mutationFn: async (values: EventFormValues) => {
-      const { data } = await api.patch<EventDto>(`/events/${id}`, eventFormToPayload(values));
+      const { data } = await api.patch<EventDto>(`/events/${id}`, eventFormToPatchPayload(values));
       return data;
     },
     onSuccess: () => {

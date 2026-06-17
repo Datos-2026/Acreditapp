@@ -21,7 +21,7 @@ import {
   isSuperAdmin,
   VECINOS_CREATABLE_ROLES
 } from "./event-kind-access";
-import { ensureNotAlreadyAccredited } from "./event-logic";
+import { ensureNotAlreadyAccredited, extraDataWithoutMesa } from "./event-logic";
 import { buildEventReportPayload } from "../reports/build-event-report";
 import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 import { pickDirectoryEmail, toDirectoryPersonDto } from "../directory/directory-logic";
@@ -115,6 +115,18 @@ const eventSchema = z.object({
   location: z.string().optional().nullable(),
   status: z.nativeEnum(EventStatus).default(EventStatus.draft),
   kind: z.enum(["gcba", "vecinos"]).default("gcba"),
+  mesaCount: z.number().int().min(1).max(99).optional().nullable(),
+  googleSheetName: z.string().max(100).optional().nullable()
+});
+
+const eventPatchSchema = z.object({
+  name: z.string().min(3).optional(),
+  description: z.string().optional().nullable(),
+  startAt: z.string().datetime().optional(),
+  endAt: z.string().datetime().optional(),
+  location: z.string().optional().nullable(),
+  status: z.nativeEnum(EventStatus).optional(),
+  kind: z.enum(["gcba", "vecinos"]).optional(),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -821,13 +833,16 @@ router.get("/:id", async (req, res, next) => {
   }
 });
 
-router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventSchema.partial()), async (req, res, next) => {
+router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatchSchema), async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     if (req.auth!.role === UserRole.ADMIN_VECINOS && req.body.kind && req.body.kind !== "vecinos") {
       throw new AppError("No podés cambiar el tipo de evento a GCBA", 403);
     }
     const data: Prisma.EventUpdateInput = { ...req.body };
+    if (!Object.prototype.hasOwnProperty.call(req.body, "kind")) {
+      delete data.kind;
+    }
     if (typeof req.body.name === "string") {
       data.slug = slugFromEventName(req.body.name);
     }
@@ -1033,7 +1048,26 @@ router.get("/:id/people", async (req, res, next) => {
 const bulkDeletePeopleScopes = ["all", "accredited", "pending", "imported", "accredited_imported"] as const;
 type BulkDeletePeopleScope = (typeof bulkDeletePeopleScopes)[number];
 
-/** Elimina personas del evento en lote. ?scope=all|accredited|pending|imported */
+const bulkUnaccreditScopes = ["accredited", "accredited_imported"] as const;
+type BulkUnaccreditScope = (typeof bulkUnaccreditScopes)[number];
+
+function isBulkUnaccreditScope(scope: BulkDeletePeopleScope): scope is BulkUnaccreditScope {
+  return (bulkUnaccreditScopes as readonly string[]).includes(scope);
+}
+
+function buildUnaccreditData(extraData: Record<string, unknown> | null | undefined) {
+  const cleaned = extraDataWithoutMesa(extraData);
+  return {
+    status: EventPersonStatus.pending,
+    accreditedAt: null,
+    accreditedByUserId: null,
+    accreditationNotes: null,
+    extraData:
+      cleaned && Object.keys(cleaned).length > 0 ? (cleaned as Prisma.InputJsonValue) : Prisma.JsonNull
+  };
+}
+
+/** Elimina personas del evento en lote, o revierte acreditaciones según scope. */
 router.delete(
   "/:id/people/bulk",
   requireRoles(...MANAGE_EVENT_ROLES),
@@ -1055,6 +1089,32 @@ router.delete(
       else if (scope === "accredited_imported") {
         where.status = EventPersonStatus.accredited;
         where.source = "imported";
+      }
+
+      if (isBulkUnaccreditScope(scope)) {
+        const rows = await prisma.eventPerson.findMany({
+          where,
+          select: { id: true, extraData: true }
+        });
+        if (rows.length > 0) {
+          await prisma.$transaction(
+            rows.map((row) =>
+              prisma.eventPerson.update({
+                where: { id: row.id },
+                data: buildUnaccreditData(row.extraData as Record<string, unknown> | null)
+              })
+            )
+          );
+        }
+        await createAuditLog({
+          req,
+          action: "eventPerson.bulkUnaccredit",
+          entityType: "event",
+          entityId: req.params.id,
+          metadata: { scope, unaccredited: rows.length }
+        });
+        res.json({ unaccredited: rows.length, scope });
+        return;
       }
 
       const deleted = await prisma.eventPerson.deleteMany({ where });
@@ -1500,6 +1560,40 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
     next(error);
   }
 });
+
+/** Revierte una acreditación: la persona vuelve a pendiente y permanece en la nómina. */
+router.post(
+  "/:id/people/:eventPersonId/unaccredit",
+  requireRoles(...ACCREDIT_ROLES),
+  async (req, res, next) => {
+    try {
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+      const current = await prisma.eventPerson.findUniqueOrThrow({
+        where: { id: req.params.eventPersonId }
+      });
+      if (current.eventId !== req.params.id) throw new AppError("Registro fuera de evento", 400);
+      if (current.status !== EventPersonStatus.accredited) {
+        throw new AppError("La persona no está acreditada", 400);
+      }
+
+      const eventPerson = await prisma.eventPerson.update({
+        where: { id: current.id },
+        data: buildUnaccreditData(current.extraData as Record<string, unknown> | null),
+        include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+      });
+
+      await createAuditLog({
+        req,
+        action: "eventPerson.unaccredit",
+        entityType: "eventPerson",
+        entityId: eventPerson.id
+      });
+      res.json(eventPerson);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.post("/:id/people/:eventPersonId/reaccredit", requireRoles(...MANAGE_EVENT_ROLES), async (req, res, next) => {
   try {

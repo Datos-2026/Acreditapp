@@ -36,3 +36,15 @@ export function eventFormToPayload(values: EventFormValues) {
     endAt: new Date(values.endAt).toISOString()
   };
 }
+
+/** Actualización parcial: no incluye `kind` (el tipo de evento no debe cambiar al editar). */
+export function eventFormToPatchPayload(values: EventFormValues) {
+  return {
+    name: values.name,
+    description: values.description || null,
+    location: values.location || null,
+    status: values.status,
+    startAt: new Date(values.startAt).toISOString(),
+    endAt: new Date(values.endAt).toISOString()
+  };
+}

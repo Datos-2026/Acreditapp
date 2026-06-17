@@ -231,6 +231,10 @@ export function EventDetailPage() {
     id: string;
     label: string;
   } | null>(null);
+  const [unaccreditPersonTarget, setUnaccreditPersonTarget] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
   const [bulkDeleteScope, setBulkDeleteScope] = useState<
     "all" | "accredited" | "accredited_imported" | null
   >(null);
@@ -336,6 +340,7 @@ export function EventDetailPage() {
     enabled: tab === "Dashboard"
   });
   type AccreditedRow = {
+    id: string;
     person: {
       cuilNormalized: string;
       lastName: string;
@@ -625,23 +630,45 @@ export function EventDetailPage() {
     onSuccess: () => {
       setDeletePersonTarget(null);
       setSelected(null);
-      setUiNotice("Persona quitada del evento.");
+      setUiNotice("Persona quitada de la nómina del evento.");
       invalidatePeopleData();
+    }
+  });
+
+  const unaccreditPersonMutation = useMutation({
+    mutationFn: async (eventPersonId: string) => {
+      await api.post(`/events/${id}/people/${eventPersonId}/unaccredit`);
+    },
+    onSuccess: () => {
+      setUnaccreditPersonTarget(null);
+      setUiNotice("Acreditación revertida. La persona volvió a estado pendiente.");
+      invalidatePeopleData();
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
 
   const bulkDeletePeopleMutation = useMutation({
     mutationFn: async (scope: "all" | "accredited" | "accredited_imported") => {
-      const { data } = await api.delete<{ deleted: number }>(`/events/${id}/people/bulk`, {
-        params: { scope }
-      });
+      const { data } = await api.delete<{ deleted?: number; unaccredited?: number }>(
+        `/events/${id}/people/bulk`,
+        { params: { scope } }
+      );
       return data;
     },
     onSuccess: (data) => {
       setBulkDeleteScope(null);
       setSelected(null);
-      setUiNotice(`Se eliminaron ${data.deleted} registro(s) del evento.`);
+      if (data.unaccredited != null) {
+        setUiNotice(
+          data.unaccredited === 1
+            ? "1 persona volvió a estado pendiente."
+            : `${data.unaccredited} personas volvieron a estado pendiente.`
+        );
+      } else {
+        setUiNotice(`Se eliminaron ${data.deleted ?? 0} registro(s) del evento.`);
+      }
       invalidatePeopleData();
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
   const stats = statsQuery.data as EventStats | undefined;
@@ -1291,8 +1318,8 @@ export function EventDetailPage() {
                       style={{ color: "var(--error)" }}
                       onClick={() => setBulkDeleteScope("accredited")}
                     >
-                      <Icon name="delete_sweep" />
-                      Vaciar acreditados
+                      <Icon name="undo" />
+                      Deshacer todas las acreditaciones
                     </button>
                     <button
                       type="button"
@@ -1409,8 +1436,8 @@ export function EventDetailPage() {
                   style={{ color: "var(--error)" }}
                   onClick={() => setBulkDeleteScope("accredited_imported")}
                 >
-                  <Icon name="delete_sweep" />
-                  Vaciar esta lista
+                  <Icon name="undo" />
+                  Deshacer acreditaciones de esta lista
                 </button>
               ) : null}
             </div>
@@ -1434,6 +1461,28 @@ export function EventDetailPage() {
                   key: "por",
                   header: "Por",
                   render: (row) => row.accreditedByUser?.name ?? "—"
+                },
+                {
+                  key: "acciones",
+                  header: "",
+                  render: (row) => (
+                    <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"]}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: "0.35rem 0.65rem" }}
+                        title="Deshacer acreditación"
+                        onClick={() =>
+                          setUnaccreditPersonTarget({
+                            id: row.id,
+                            label: `${row.person.lastName}, ${row.person.firstName} (${displayPersonDocument(row.person, eventKind)})`
+                          })
+                        }
+                      >
+                        <Icon name="undo" />
+                      </button>
+                    </RoleGuard>
+                  )
                 }
               ]}
             />
@@ -1513,6 +1562,28 @@ export function EventDetailPage() {
                   key: "por",
                   header: "Por",
                   render: (row) => row.accreditedByUser?.name ?? "—"
+                },
+                {
+                  key: "acciones",
+                  header: "",
+                  render: (row) => (
+                    <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"]}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ padding: "0.35rem 0.65rem" }}
+                        title="Deshacer acreditación"
+                        onClick={() =>
+                          setUnaccreditPersonTarget({
+                            id: row.id,
+                            label: `${row.person.lastName}, ${row.person.firstName} (${displayPersonDocument(row.person, eventKind)})`
+                          })
+                        }
+                      >
+                        <Icon name="undo" />
+                      </button>
+                    </RoleGuard>
+                  )
                 }
               ]}
             />
@@ -1951,6 +2022,17 @@ export function EventDetailPage() {
         confirmLabel="Quitar"
         danger
       />
+      <ConfirmDialog
+        open={Boolean(unaccreditPersonTarget)}
+        title="Deshacer acreditación"
+        message={`¿Revertir la acreditación de ${unaccreditPersonTarget?.label ?? "esta persona"}? Volverá a estado pendiente y seguirá en la nómina del evento.`}
+        onCancel={() => setUnaccreditPersonTarget(null)}
+        onConfirm={() =>
+          unaccreditPersonTarget && unaccreditPersonMutation.mutate(unaccreditPersonTarget.id)
+        }
+        confirmLabel={unaccreditPersonMutation.isPending ? "Procesando…" : "Deshacer acreditación"}
+        danger
+      />
       <ConfirmTypeDialog
         open={bulkDeleteScope === "all"}
         title="Vaciar toda la base del evento"
@@ -1964,24 +2046,24 @@ export function EventDetailPage() {
       />
       <ConfirmTypeDialog
         open={bulkDeleteScope === "accredited"}
-        title="Vaciar acreditados"
-        message={`Vas a eliminar TODOS los acreditados del evento "${eventQuery.data?.name ?? ""}" (importadas y fuera de base). Las pendientes en la base se mantienen.`}
+        title="Deshacer todas las acreditaciones"
+        message={`Vas a revertir TODAS las acreditaciones del evento "${eventQuery.data?.name ?? ""}" (importadas y fuera de base). Las personas volverán a pendiente y permanecerán en la nómina.`}
         requiredText={eventQuery.data?.name ?? ""}
         requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setBulkDeleteScope(null)}
         onConfirm={() => bulkDeletePeopleMutation.mutate("accredited")}
-        confirmLabel="Vaciar acreditados"
+        confirmLabel="Deshacer acreditaciones"
         danger
       />
       <ConfirmTypeDialog
         open={bulkDeleteScope === "accredited_imported"}
-        title="Vaciar acreditados desde base"
-        message={`Vas a eliminar los acreditados que venían de la planilla importada del evento "${eventQuery.data?.name ?? ""}".`}
+        title="Deshacer acreditaciones de esta lista"
+        message={`Vas a revertir las acreditaciones de quienes venían de la planilla importada en "${eventQuery.data?.name ?? ""}". Volverán a pendiente y seguirán en Personas.`}
         requiredText={eventQuery.data?.name ?? ""}
         requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setBulkDeleteScope(null)}
         onConfirm={() => bulkDeletePeopleMutation.mutate("accredited_imported")}
-        confirmLabel="Vaciar lista"
+        confirmLabel="Deshacer acreditaciones"
         danger
       />
       <ConfirmTypeDialog
