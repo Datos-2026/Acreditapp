@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 type Props = {
   open: boolean;
@@ -8,6 +8,8 @@ type Props = {
   onCancel: () => void;
   confirmLabel?: string;
   danger?: boolean;
+  confirmDisabled?: boolean;
+  children?: ReactNode;
 };
 
 export function ConfirmDialog({
@@ -17,7 +19,9 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   confirmLabel = "Confirmar",
-  danger = false
+  danger = false,
+  confirmDisabled = false,
+  children
 }: Props) {
   const confirmBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -34,7 +38,7 @@ export function ConfirmDialog({
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        onConfirm();
+        if (!confirmDisabled) onConfirm();
       } else if (e.key === "Escape") {
         e.preventDefault();
         onCancel();
@@ -49,7 +53,7 @@ export function ConfirmDialog({
       clearTimeout(armId);
       if (registered) window.removeEventListener("keydown", handler);
     };
-  }, [open, onConfirm, onCancel]);
+  }, [open, onConfirm, onCancel, confirmDisabled]);
 
   if (!open) return null;
   return (
@@ -57,6 +61,7 @@ export function ConfirmDialog({
       <div className="modal card" role="dialog" aria-modal="true">
         <h3>{title}</h3>
         <p>{message}</p>
+        {children}
         <p style={{ color: "var(--on-surface-variant)", fontSize: "0.8rem", marginTop: "0.25rem" }}>
           Enter para confirmar · Esc para cancelar.
         </p>
@@ -70,6 +75,7 @@ export function ConfirmDialog({
             type="button"
             style={danger ? { color: "var(--error)", borderColor: "var(--error)" } : undefined}
             onClick={onConfirm}
+            disabled={confirmDisabled}
           >
             {confirmLabel}
           </button>

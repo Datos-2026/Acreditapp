@@ -25,7 +25,7 @@ import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
-import type { DirectoryPersonDto, DirectorySearchResult, VecinoDirectoryPersonDto } from "@gcba/shared";
+import type { DirectoryPersonDto, DirectorySearchResult, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
 import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
@@ -69,6 +69,67 @@ function vecinoMesaFromExtra(extraData?: Record<string, unknown> | null): string
 
 function vecinoPresenteFromExtra(extraData?: Record<string, unknown> | null): string {
   return displayOrDash(extraData?.presente);
+}
+
+function MesaSelect({
+  mesaCount,
+  value,
+  onChange,
+  id,
+  mesaStats,
+  showCountsSummary = false
+}: {
+  mesaCount: number;
+  value: string;
+  onChange: (value: string) => void;
+  id: string;
+  mesaStats?: MesaStatRowDto[];
+  showCountsSummary?: boolean;
+}) {
+  const countByMesa = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const row of mesaStats ?? []) {
+      map.set(row.mesaNumber, row.accredited);
+    }
+    return map;
+  }, [mesaStats]);
+
+  const mesaLabel = (n: number) => {
+    const count = countByMesa.get(n) ?? 0;
+    const people = count === 1 ? "1 persona" : `${count} personas`;
+    return `Mesa ${n} (${people})`;
+  };
+
+  return (
+    <div style={{ marginTop: "0.75rem" }}>
+      <label className="label-md field-label" htmlFor={id}>
+        Mesa
+      </label>
+      <select
+        id={id}
+        className="input input--boxed"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ width: "100%", maxWidth: 300, marginTop: "0.35rem" }}
+      >
+        <option value="">Elegir mesa…</option>
+        {Array.from({ length: mesaCount }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={String(n)}>
+            {mesaStats ? mesaLabel(n) : `Mesa ${n}`}
+          </option>
+        ))}
+      </select>
+      {showCountsSummary && mesaStats && mesaStats.length > 0 ? (
+        <div className="mesa-select-summary" aria-label="Personas por mesa">
+          {mesaStats.map((row) => (
+            <span key={row.mesaNumber} className="mesa-select-summary__chip">
+              M{row.mesaNumber}: <strong>{row.accredited}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 type EventStats = {
@@ -157,6 +218,7 @@ export function EventDetailPage() {
   const tab = SLUG_TO_TAB[slug] ?? "Acreditar";
   const [selected, setSelected] = useState<EventPerson | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [accreditMesa, setAccreditMesa] = useState("");
   const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
@@ -219,6 +281,17 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
+  const mesaCount = eventQuery.data?.mesaCount ?? 0;
+  const mesasRequired = isVecinosEvent && mesaCount > 0;
+
+  const mesasStatsQuery = useQuery({
+    queryKey: ["mesas", id],
+    queryFn: async () => (await api.get<MesaStatsDto>(`/events/${id}/mesas/stats`)).data,
+    enabled: mesasRequired && tab === "Acreditar",
+    refetchInterval: 15_000
+  });
+
+  const mesaStatsRows = mesasStatsQuery.data?.mesas ?? [];
   const canConfigureVecinosOps =
     isVecinosEvent &&
     Boolean(user?.role && ["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"].includes(user.role));
@@ -438,12 +511,28 @@ export function EventDetailPage() {
     setSelected(null);
     setSearchedOnce(false);
     setUiNotice(null);
+    setAccreditMesa("");
   };
+
+  useEffect(() => {
+    setAccreditMesa("");
+  }, [selected?.id, directoryMatch?.directoryPerson]);
+
+  useEffect(() => {
+    if (showConfirm && mesasRequired) {
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
+    }
+  }, [showConfirm, mesasRequired, id, queryClient]);
   const accreditMutation = useMutation({
-    mutationFn: async () =>
-      (await api.post<EventPerson>(`/events/${id}/people/${selected?.id}/accredit`)).data,
+    mutationFn: async (mesa?: number) =>
+      (
+        await api.post<EventPerson>(`/events/${id}/people/${selected?.id}/accredit`, {
+          ...(mesa != null ? { mesa } : {})
+        })
+      ).data,
     onSuccess: (data) => {
       setShowConfirm(false);
+      setAccreditMesa("");
       const mesa = vecinoMesaFromExtra(data.extraData);
       setUiNotice(
         isVecinosEvent && mesa !== "—"
@@ -467,13 +556,16 @@ export function EventDetailPage() {
     }
   });
   const manualFromDirectoryMutation = useMutation({
-    mutationFn: async (payload: { cuilNormalized?: string; dni?: string }) => {
+    mutationFn: async (payload: { cuilNormalized?: string; dni?: string; mesa?: number }) => {
       const created = await api.post<{ id: string }>(`/events/${id}/people/manual-from-directory`, payload);
-      await api.post(`/events/${id}/people/${created.data.id}/accredit`);
+      await api.post(`/events/${id}/people/${created.data.id}/accredit`, {
+        ...(payload.mesa != null ? { mesa: payload.mesa } : {})
+      });
       return created.data;
     },
     onSuccess: () => {
       setSelected(null);
+      setAccreditMesa("");
       setLastSearchedCuil("");
       setLiveSearchInput("");
       setDebouncedSearch("");
@@ -492,14 +584,17 @@ export function EventDetailPage() {
   });
 
   const manualAndAccreditMutation = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => {
-      const created = await api.post<{ id: string }>(`/events/${id}/people/manual`, payload);
-      await api.post(`/events/${id}/people/${created.data.id}/accredit`);
+    mutationFn: async ({ values, mesa }: { values: Record<string, unknown>; mesa?: number }) => {
+      const created = await api.post<{ id: string }>(`/events/${id}/people/manual`, values);
+      await api.post(`/events/${id}/people/${created.data.id}/accredit`, {
+        ...(mesa != null ? { mesa } : {})
+      });
       return created.data;
     },
     onSuccess: () => {
       setShowFueraDeBaseModal(false);
       setShowConfirm(false);
+      setAccreditMesa("");
       setSelected(null);
       setLastSearchedCuil("");
       setLiveSearchInput("");
@@ -746,7 +841,11 @@ export function EventDetailPage() {
                     !manualFromDirectoryMutation.isPending
                   ) {
                     e.preventDefault();
-                    manualFromDirectoryMutation.mutate(directoryManualPayload);
+                    if (mesasRequired && !accreditMesa) return;
+                    manualFromDirectoryMutation.mutate({
+                      ...directoryManualPayload,
+                      mesa: mesasRequired ? Number(accreditMesa) : undefined
+                    });
                     return;
                   }
 
@@ -936,9 +1035,17 @@ export function EventDetailPage() {
                       <button
                         className="btn btn-danger"
                         type="button"
-                        disabled={manualFromDirectoryMutation.isPending || !directoryManualPayload}
+                        disabled={
+                          manualFromDirectoryMutation.isPending ||
+                          !directoryManualPayload ||
+                          (mesasRequired && !accreditMesa)
+                        }
                         onClick={() =>
-                          directoryManualPayload && manualFromDirectoryMutation.mutate(directoryManualPayload)
+                          directoryManualPayload &&
+                          manualFromDirectoryMutation.mutate({
+                            ...directoryManualPayload,
+                            mesa: mesasRequired ? Number(accreditMesa) : undefined
+                          })
                         }
                       >
                         <Icon name="verified" />
@@ -947,6 +1054,15 @@ export function EventDetailPage() {
                     )}
                   </RoleGuard>
                 </div>
+                {mesasRequired ? (
+                  <MesaSelect
+                    id="directory-accredit-mesa"
+                    mesaCount={mesaCount}
+                    value={accreditMesa}
+                    onChange={setAccreditMesa}
+                    mesaStats={mesaStatsRows}
+                  />
+                ) : null}
                 <div className="accred-detail__rows">
                   {directoryMatch.directoryKind === "vecinos" ? (
                     <>
@@ -1057,22 +1173,57 @@ export function EventDetailPage() {
                 : "Esta acción acredita a la persona en el evento."
             }
             confirmLabel={accreditMutation.isPending ? "Acreditando…" : "Acreditar"}
-            onCancel={() => setShowConfirm(false)}
-            onConfirm={() => {
-              if (!accreditMutation.isPending) accreditMutation.mutate();
+            confirmDisabled={
+              accreditMutation.isPending ||
+              (mesasRequired &&
+                (!accreditMesa || Number(accreditMesa) < 1 || Number(accreditMesa) > mesaCount))
+            }
+            onCancel={() => {
+              setShowConfirm(false);
+              setAccreditMesa("");
             }}
-          />
+            onConfirm={() => {
+              if (accreditMutation.isPending) return;
+              if (mesasRequired && !accreditMesa) return;
+              accreditMutation.mutate(mesasRequired ? Number(accreditMesa) : undefined);
+            }}
+          >
+            {mesasRequired ? (
+              <MesaSelect
+                id="accredit-mesa"
+                mesaCount={mesaCount}
+                value={accreditMesa}
+                onChange={setAccreditMesa}
+                mesaStats={mesaStatsRows}
+                showCountsSummary
+              />
+            ) : null}
+          </ConfirmDialog>
           {showFueraDeBaseModal ? (
             <div className="modal-backdrop">
               <div className="modal card" style={{ width: "min(720px, 95vw)" }}>
                 <h3 style={{ marginTop: 0 }}>Acreditar fuera de base</h3>
                 <p style={{ color: "var(--on-surface-variant)" }}>
-                  Registrá la persona manualmente y se acredita de forma automática en este evento.
+                  Registrá la persona manualmente y se acredita en este evento.
                 </p>
+                {mesasRequired ? (
+                  <MesaSelect
+                    id="fuera-base-mesa"
+                    mesaCount={mesaCount}
+                    value={accreditMesa}
+                    onChange={setAccreditMesa}
+                    mesaStats={mesaStatsRows}
+                  />
+                ) : null}
                 <ManualPersonForm
                   initialCuilRaw={lastSearchedCuil}
                   submitLabel={manualAndAccreditMutation.isPending ? "Procesando..." : "Registrar y acreditar"}
-                  onSubmit={(values) => manualAndAccreditMutation.mutate(values as unknown as Record<string, unknown>)}
+                  onSubmit={(values) =>
+                    manualAndAccreditMutation.mutate({
+                      values: values as unknown as Record<string, unknown>,
+                      mesa: mesasRequired ? Number(accreditMesa) : undefined
+                    })
+                  }
                 />
                 {manualAndAccreditMutation.isError ? (
                   <p className="message-error">No se pudo registrar/acreditar fuera de base. Reintentá.</p>

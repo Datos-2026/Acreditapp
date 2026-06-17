@@ -349,7 +349,7 @@ export function VecinoMesasPanel({
 
           <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.875rem", maxWidth: "52ch" }}>
 
-            Al acreditar, el sistema asigna automáticamente la mesa con menos personas.
+            Al acreditar, elegí la mesa manualmente para cada persona.
 
           </p>
 

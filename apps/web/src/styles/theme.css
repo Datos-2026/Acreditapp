@@ -2647,6 +2647,26 @@ a.tab-btn--informe {
   min-width: 4px;
 }
 
+.mesa-select-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.mesa-select-summary__chip {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--outline-variant);
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+}
+
+.mesa-select-summary__chip strong {
+  color: var(--primary-container);
+}
+
 .mesa-panel-compact {
   margin-top: 1.25rem;
   padding-top: 1rem;

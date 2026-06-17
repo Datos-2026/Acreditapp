@@ -35,7 +35,7 @@ import {
   getMesaStats,
   mergeMesaIntoExtraData,
   mesaLabel,
-  pickMesaWithLeastLoad
+  parseMesaNumber
 } from "./mesa-assignment";
 import { appendVecinoAccreditationToSheet, createVecinoEventSheet, ensureVecinoEventSheet, formatGoogleSheetsError, getVecinoSheetError, isGoogleSheetsConfigured, isUnprovisionedSheetName, recordVecinoSheetError } from "./google-sheets-sync";
 
@@ -121,6 +121,11 @@ const eventSchema = z.object({
 
 const vecinosMesaConfigSchema = z.object({
   mesaCount: z.number().int().min(1).max(99)
+});
+
+const accreditBodySchema = z.object({
+  notes: z.string().optional().nullable(),
+  mesa: z.coerce.number().int().min(1).max(99).optional()
 });
 
 const assignUsersSchema = z.object({
@@ -1425,7 +1430,7 @@ router.post("/:id/people/manual", requireRoles(...ACCREDIT_ROLES), validateBody(
   }
 });
 
-router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLES), async (req, res, next) => {
+router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLES), validateBody(accreditBodySchema), async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     await assertEventAcceptingAccreditations(req.params.id);
@@ -1450,8 +1455,13 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
     let assignedMesa: number | null = null;
 
     if (event.kind === "vecinos" && event.mesaCount && event.mesaCount > 0) {
-      assignedMesa = await pickMesaWithLeastLoad(req.params.id, event.mesaCount);
-      extraData = mergeMesaIntoExtraData(extraData, assignedMesa);
+      const mesaNum =
+        typeof req.body.mesa === "number" ? req.body.mesa : parseMesaNumber(req.body.mesa);
+      if (!mesaNum || mesaNum < 1 || mesaNum > event.mesaCount) {
+        throw new AppError(`Seleccioná una mesa entre 1 y ${event.mesaCount}`, 400);
+      }
+      assignedMesa = mesaNum;
+      extraData = mergeMesaIntoExtraData(extraData, mesaNum);
     }
 
     const eventPerson = await prisma.eventPerson.update({
