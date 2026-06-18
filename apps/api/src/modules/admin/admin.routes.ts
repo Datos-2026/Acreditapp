@@ -2,62 +2,100 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
 import { requireRoles } from "../../middlewares/rbac";
+import {
+  buildAccreditorPodiumStats,
+  sortByAveragePerEvent,
+  sortByTotalCount
+} from "./podium-logic";
 
 const router = Router();
 router.use(requireAuth);
 router.use(requireRoles("SUPERADMIN"));
 
+type PodiumUserRow = {
+  userId: string | null;
+  userName: string;
+  userEmail: string | null;
+  userRole: string | null;
+  isActive: boolean;
+  count: number;
+  eventCount: number;
+  averagePerEvent: number;
+};
+
+async function enrichPodiumRows(
+  stats: Array<{
+    userId: string;
+    count: number;
+    eventCount: number;
+    averagePerEvent: number;
+  }>,
+  limit: number
+): Promise<PodiumUserRow[]> {
+  const slice = stats.slice(0, limit);
+  const userIds = slice.map((row) => row.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, email: true, role: true, isActive: true }
+  });
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  return slice.map((row) => {
+    const user = userById.get(row.userId);
+    return {
+      userId: row.userId,
+      userName: user?.name ?? "Usuario eliminado",
+      userEmail: user?.email ?? null,
+      userRole: user?.role ?? null,
+      isActive: user?.isActive ?? false,
+      count: row.count,
+      eventCount: row.eventCount,
+      averagePerEvent: Number(row.averagePerEvent.toFixed(2))
+    };
+  });
+}
+
 /**
- * Podio histórico: los acreditadores con más acreditaciones sumando todos los eventos.
- * Devuelve hasta `limit` filas (por defecto 10) ordenadas descendente.
- * El frontend toma las primeras tres para mostrar el podio 1°/2°/3°.
+ * Podio histórico: volumen total y promedio por evento en el que acreditó cada persona.
+ * El frontend toma las primeras tres filas de cada ranking para el podio 1°/2°/3°.
  */
 router.get("/podium", async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit ?? 10), 3), 50);
 
-    const grouped = await prisma.eventPerson.groupBy({
-      by: ["accreditedByUserId"],
+    const accreditations = await prisma.eventPerson.findMany({
       where: {
         status: "accredited",
         accreditedByUserId: { not: null }
       },
-      _count: { _all: true }
+      select: {
+        accreditedByUserId: true,
+        eventId: true
+      }
     });
 
-    const userIds = grouped
-      .map((row) => row.accreditedByUserId)
-      .filter((id): id is string => Boolean(id));
+    const rows = accreditations
+      .filter((row): row is { accreditedByUserId: string; eventId: string } =>
+        Boolean(row.accreditedByUserId)
+      )
+      .map((row) => ({
+        accreditedByUserId: row.accreditedByUserId,
+        eventId: row.eventId
+      }));
 
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, name: true, email: true, role: true, isActive: true }
-    });
-    const userById = new Map(users.map((u) => [u.id, u]));
+    const { totalAccredited, totalEventsWithAccreditations, stats } = buildAccreditorPodiumStats(rows);
 
-    const ranking = grouped
-      .map((row) => {
-        const user = userById.get(row.accreditedByUserId ?? "");
-        return {
-          userId: row.accreditedByUserId,
-          userName: user?.name ?? "Usuario eliminado",
-          userEmail: user?.email ?? null,
-          userRole: user?.role ?? null,
-          isActive: user?.isActive ?? false,
-          count: row._count._all
-        };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, limit);
-
-    const totalAccredited = await prisma.eventPerson.count({
-      where: { status: "accredited", accreditedByUserId: { not: null } }
-    });
+    const [ranking, averageRanking] = await Promise.all([
+      enrichPodiumRows(sortByTotalCount(stats), limit),
+      enrichPodiumRows(sortByAveragePerEvent(stats), limit)
+    ]);
 
     res.json({
       generatedAt: new Date().toISOString(),
       totalAccredited,
-      ranking
+      totalEventsWithAccreditations,
+      ranking,
+      averageRanking
     });
   } catch (error) {
     next(error);

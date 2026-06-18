@@ -1809,6 +1809,17 @@ a.tab-btn--informe {
 }
 
 /* —— Podio histórico de acreditadores (admin) —— */
+.podium-page-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.podium-block + .podium-block {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
 .podium-summary {
   display: flex;
   flex-wrap: wrap;
@@ -1913,6 +1924,13 @@ a.tab-btn--informe {
 .podium-count strong {
   color: var(--on-surface, #fff);
   font-size: 1.05rem;
+}
+
+.podium-subcount {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.35;
 }
 
 .podium-pedestal {
