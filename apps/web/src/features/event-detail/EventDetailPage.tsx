@@ -37,6 +37,7 @@ import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
 import { VecinoMesasPanel } from "./VecinoMesasPanel";
+import { EventNotesPanel } from "./EventNotesPanel";
 
 type EventPerson = {
   id: string;
@@ -181,6 +182,7 @@ const tabs = [
   "Importar XLSX",
   "Actividad",
   "Dashboard",
+  "Notas",
   "Configuración"
 ] as const;
 
@@ -193,6 +195,7 @@ const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
   "Importar XLSX": "importar",
   Actividad: "actividad",
   Dashboard: "metricas",
+  Notas: "notas",
   Configuración: "config"
 };
 
@@ -205,6 +208,7 @@ const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
   importar: "Importar XLSX",
   actividad: "Actividad",
   metricas: "Dashboard",
+  notas: "Notas",
   config: "Configuración"
 };
 
@@ -285,28 +289,41 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
+  const enableMesas = Boolean(eventQuery.data?.enableMesas);
+  const enableNotes = Boolean(eventQuery.data?.enableNotes);
   const mesaCount = eventQuery.data?.mesaCount ?? 0;
-  const mesasRequired = isVecinosEvent && mesaCount > 0;
+  const mesasRequired = enableMesas && mesaCount > 0;
 
   const mesasStatsQuery = useQuery({
     queryKey: ["mesas", id],
     queryFn: async () => (await api.get<MesaStatsDto>(`/events/${id}/mesas/stats`)).data,
-    enabled: mesasRequired && tab === "Acreditar",
+    enabled: enableMesas && mesasRequired && tab === "Acreditar",
     refetchInterval: 15_000
   });
 
   const mesaStatsRows = mesasStatsQuery.data?.mesas ?? [];
-  const canConfigureVecinosOps =
-    isVecinosEvent &&
+  const canConfigureMesas =
+    enableMesas &&
     Boolean(user?.role && ["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"].includes(user.role));
 
   const visibleTabs = useMemo(() => {
-    if (user?.role === "SUPERADMIN") return [...tabs];
-    if (user?.role === "ADMIN_VECINOS" && isVecinosEvent) {
-      return [...tabs];
+    let list: (typeof tabs)[number][] =
+      user?.role === "SUPERADMIN"
+        ? [...tabs]
+        : user?.role === "ADMIN_VECINOS" && isVecinosEvent
+          ? [...tabs]
+          : tabs.filter((t) => t !== "Configuración");
+    if (!enableNotes) {
+      list = list.filter((t) => t !== "Notas");
     }
-    return tabs.filter((t) => t !== "Configuración");
-  }, [user?.role, isVecinosEvent]);
+    return list;
+  }, [user?.role, isVecinosEvent, enableNotes]);
+
+  useEffect(() => {
+    if (tab === "Notas" && eventQuery.data && !eventQuery.data.enableNotes) {
+      setSearchParams({ tab: "terminal" }, { replace: true });
+    }
+  }, [tab, eventQuery.data, setSearchParams]);
 
   const peopleQuery = useQuery({
     queryKey: ["people", id, "list"],
@@ -912,11 +929,11 @@ export function EventDetailPage() {
               Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo).
             </p>
           </section>
-          {isVecinosEvent ? (
+          {enableMesas ? (
             <VecinoMesasPanel
               eventId={id}
               mesaCount={eventQuery.data?.mesaCount}
-              canConfigure={canConfigureVecinosOps}
+              canConfigure={canConfigureMesas}
               compact
               placement="toolbar"
             />
@@ -1994,6 +2011,10 @@ export function EventDetailPage() {
             </div>
           )}
         </div>
+      ) : null}
+
+      {tab === "Notas" && enableNotes ? (
+        <EventNotesPanel eventId={id} eventKind={eventKind} />
       ) : null}
 
       {tab === "Configuración" ? (

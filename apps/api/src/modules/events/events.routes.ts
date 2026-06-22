@@ -22,6 +22,7 @@ import {
   VECINOS_CREATABLE_ROLES
 } from "./event-kind-access";
 import { ensureNotAlreadyAccredited, extraDataWithoutMesa } from "./event-logic";
+import { mesasActive, normalizeEventFeatures } from "./event-features-logic";
 import { buildEventReportPayload } from "../reports/build-event-report";
 import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 import { pickDirectoryEmail, toDirectoryPersonDto } from "../directory/directory-logic";
@@ -64,7 +65,8 @@ const PERSON_EXPORT_HEADER = [
   "Fuera_de_base",
   "Acreditado_el",
   "Acreditado_por",
-  "Notas_acreditacion"
+  "Notas_acreditacion",
+  "Notas_evento"
 ] as const;
 
 const personExportInclude = {
@@ -94,7 +96,8 @@ function mapEventPersonToExportRow(r: EventPersonExportRow, eventKind: EventKind
     fueraDeBase,
     accAt,
     by,
-    r.accreditationNotes ?? ""
+    r.accreditationNotes ?? "",
+    r.eventNotes ?? ""
   ];
 }
 
@@ -115,6 +118,8 @@ const eventSchema = z.object({
   location: z.string().optional().nullable(),
   status: z.nativeEnum(EventStatus).default(EventStatus.draft),
   kind: z.enum(["gcba", "vecinos"]).default("gcba"),
+  enableMesas: z.boolean().default(false),
+  enableNotes: z.boolean().default(false),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -127,8 +132,14 @@ const eventPatchSchema = z.object({
   location: z.string().optional().nullable(),
   status: z.nativeEnum(EventStatus).optional(),
   kind: z.enum(["gcba", "vecinos"]).optional(),
+  enableMesas: z.boolean().optional(),
+  enableNotes: z.boolean().optional(),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
+});
+
+const eventNotesBodySchema = z.object({
+  eventNotes: z.string().optional().nullable()
 });
 
 const vecinosMesaConfigSchema = z.object({
@@ -249,12 +260,24 @@ router.post(
       }
     }
 
+    const features = normalizeEventFeatures({
+      enableMesas: req.body.enableMesas,
+      enableNotes: req.body.enableNotes,
+      mesaCount: req.body.mesaCount
+    });
+
     const event = await prisma.event.create({
       data: {
-        ...req.body,
+        name: req.body.name,
+        description: req.body.description ?? null,
+        startAt: req.body.startAt,
+        endAt: req.body.endAt,
+        location: req.body.location ?? null,
+        status: req.body.status ?? EventStatus.draft,
         kind,
         slug: slugFromEventName(req.body.name),
-        googleSheetName
+        googleSheetName,
+        ...features
       }
     });
     if (req.auth!.role === UserRole.ADMIN_VECINOS || req.auth!.role === UserRole.ADMIN_EVENTO) {
@@ -559,16 +582,16 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
   }
 });
 
-/** Estado de mesas (solo eventos vecinos con mesaCount configurado). */
+/** Estado de mesas (eventos con enableMesas y mesaCount configurado). */
 router.get("/:id/mesas/stats", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
-      select: { kind: true, mesaCount: true, googleSheetName: true }
+      select: { kind: true, enableMesas: true, mesaCount: true, googleSheetName: true }
     });
-    if (event.kind !== "vecinos") {
-      res.status(400).json({ message: "Las mesas solo aplican a eventos vecinos" });
+    if (!event.enableMesas) {
+      res.status(400).json({ message: "Este evento no tiene mesas habilitadas" });
       return;
     }
     if (!event.mesaCount || event.mesaCount < 1) {
@@ -600,7 +623,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
   }
 });
 
-/** Configurar cantidad de mesas al iniciar acreditación (vecinos). */
+/** Configurar cantidad de mesas al iniciar acreditación. */
 router.patch(
   "/:id/mesas/config",
   requireRoles(...ACCREDIT_ROLES),
@@ -610,15 +633,15 @@ router.patch(
       await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
       const event = await prisma.event.findUniqueOrThrow({
         where: { id: req.params.id },
-        select: { kind: true }
+        select: { enableMesas: true }
       });
-      if (event.kind !== "vecinos") {
-        res.status(400).json({ message: "Las mesas solo aplican a eventos vecinos" });
+      if (!event.enableMesas) {
+        res.status(400).json({ message: "Este evento no tiene mesas habilitadas" });
         return;
       }
       const updated = await prisma.event.update({
         where: { id: req.params.id },
-        data: { mesaCount: req.body.mesaCount }
+        data: { mesaCount: req.body.mesaCount, enableMesas: true }
       });
       await createAuditLog({
         req,
@@ -843,6 +866,24 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
     if (!Object.prototype.hasOwnProperty.call(req.body, "kind")) {
       delete data.kind;
     }
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "enableMesas") ||
+      Object.prototype.hasOwnProperty.call(req.body, "enableNotes") ||
+      Object.prototype.hasOwnProperty.call(req.body, "mesaCount")
+    ) {
+      const current = await prisma.event.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: { enableMesas: true, enableNotes: true, mesaCount: true }
+      });
+      const features = normalizeEventFeatures({
+        enableMesas: req.body.enableMesas ?? current.enableMesas,
+        enableNotes: req.body.enableNotes ?? current.enableNotes,
+        mesaCount: req.body.mesaCount ?? current.mesaCount
+      });
+      data.enableMesas = features.enableMesas;
+      data.enableNotes = features.enableNotes;
+      data.mesaCount = features.mesaCount;
+    }
     if (typeof req.body.name === "string") {
       data.slug = slugFromEventName(req.body.name);
     }
@@ -1062,6 +1103,7 @@ function buildUnaccreditData(extraData: Record<string, unknown> | null | undefin
     accreditedAt: null,
     accreditedByUserId: null,
     accreditationNotes: null,
+    eventNotes: null,
     extraData:
       cleaned && Object.keys(cleaned).length > 0 ? (cleaned as Prisma.InputJsonValue) : Prisma.JsonNull
   };
@@ -1503,6 +1545,7 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
           kind: true,
           name: true,
           startAt: true,
+          enableMesas: true,
           mesaCount: true,
           googleSheetName: true
         }
@@ -1514,10 +1557,10 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
     let extraData = (current.extraData as Record<string, unknown> | null) ?? {};
     let assignedMesa: number | null = null;
 
-    if (event.kind === "vecinos" && event.mesaCount && event.mesaCount > 0) {
+    if (mesasActive(event)) {
       const mesaNum =
         typeof req.body.mesa === "number" ? req.body.mesa : parseMesaNumber(req.body.mesa);
-      if (!mesaNum || mesaNum < 1 || mesaNum > event.mesaCount) {
+      if (!mesaNum || mesaNum < 1 || mesaNum > (event.mesaCount ?? 0)) {
         throw new AppError(`Seleccioná una mesa entre 1 y ${event.mesaCount}`, 400);
       }
       assignedMesa = mesaNum;
@@ -1585,6 +1628,55 @@ router.post(
       await createAuditLog({
         req,
         action: "eventPerson.unaccredit",
+        entityType: "eventPerson",
+        entityId: eventPerson.id
+      });
+      res.json(eventPerson);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/** Nota operativa post-acreditación por persona (pestaña Notas). */
+router.patch(
+  "/:id/people/:eventPersonId/notes",
+  requireRoles(...ACCREDIT_ROLES),
+  validateBody(eventNotesBodySchema),
+  async (req, res, next) => {
+    try {
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+      const [event, current] = await Promise.all([
+        prisma.event.findUniqueOrThrow({
+          where: { id: req.params.id },
+          select: { enableNotes: true }
+        }),
+        prisma.eventPerson.findUniqueOrThrow({
+          where: { id: req.params.eventPersonId }
+        })
+      ]);
+      if (!event.enableNotes) {
+        throw new AppError("Este evento no tiene notas habilitadas", 400);
+      }
+      if (current.eventId !== req.params.id) throw new AppError("Registro fuera de evento", 400);
+      if (current.status !== EventPersonStatus.accredited) {
+        throw new AppError("Solo se pueden asignar notas a personas acreditadas", 400);
+      }
+
+      const note =
+        req.body.eventNotes == null || String(req.body.eventNotes).trim() === ""
+          ? null
+          : String(req.body.eventNotes).trim();
+
+      const eventPerson = await prisma.eventPerson.update({
+        where: { id: current.id },
+        data: { eventNotes: note },
+        include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+      });
+
+      await createAuditLog({
+        req,
+        action: "eventPerson.updateNotes",
         entityType: "eventPerson",
         entityId: eventPerson.id
       });

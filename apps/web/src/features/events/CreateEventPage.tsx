@@ -6,6 +6,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../auth/auth-context";
 import { useLastEvent } from "../../lib/lastEventContext";
 import { Icon } from "../../components/Icon";
+import { ToggleField } from "../../components/ToggleField";
 import { eventFormSchema, eventFormToPayload, type EventFormValues } from "./eventForm";
 export function CreateEventPage() {
   const { user } = useAuth();
@@ -15,14 +16,18 @@ export function CreateEventPage() {
   const queryClient = useQueryClient();
   const { setLastEventId } = useLastEvent();
   const forceVecinos = user?.role === "ADMIN_VECINOS";
-  const { register, handleSubmit, formState } = useForm<EventFormValues>({
+  const { register, handleSubmit, formState, watch, setValue } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
       status: "draft",
       description: "",
-      kind: forceVecinos ? "vecinos" : "gcba"
+      kind: forceVecinos ? "vecinos" : "gcba",
+      enableMesas: false,
+      enableNotes: false
     }
   });
+  const enableMesas = watch("enableMesas");
+  const enableNotes = watch("enableNotes");
   const mutation = useMutation({
     mutationFn: async (values: EventFormValues) => {
       const { data } = await api.post<{ id: string }>("/events", eventFormToPayload(values));
@@ -110,6 +115,46 @@ export function CreateEventPage() {
           ) : forceVecinos ? (
             <input type="hidden" {...register("kind")} value="vecinos" />
           ) : null}
+
+          <fieldset className="event-options-fieldset form-block-spaced">
+            <legend className="label-md field-label">Opciones del evento</legend>
+            <ToggleField
+              id="enableMesas"
+              label="¿Necesitás mesas?"
+              description="Al acreditar, cada persona debe asignarse a una mesa."
+              checked={enableMesas}
+              onChange={(checked) => {
+                setValue("enableMesas", checked, { shouldValidate: true });
+                if (!checked) setValue("mesaCount", undefined);
+              }}
+            />
+            {enableMesas ? (
+              <div style={{ marginTop: "0.75rem", maxWidth: "12rem" }}>
+                <label className="label-md field-label" htmlFor="mesaCount">
+                  Cantidad de mesas
+                </label>
+                <input
+                  id="mesaCount"
+                  type="number"
+                  min={1}
+                  max={99}
+                  className="input input--boxed"
+                  {...register("mesaCount")}
+                />
+                {formState.errors.mesaCount ? (
+                  <p className="message-error">{formState.errors.mesaCount.message}</p>
+                ) : null}
+              </div>
+            ) : null}
+            <ToggleField
+              id="enableNotes"
+              label="¿Necesitás notas?"
+              description="Habilita una pestaña para cargar una nota por persona acreditada."
+              checked={enableNotes}
+              onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+          </fieldset>
+
           <div className="row gap create-event-card__actions">
             <button className="btn btn-primary" type="submit" disabled={mutation.isPending}>
               <Icon name="save" />

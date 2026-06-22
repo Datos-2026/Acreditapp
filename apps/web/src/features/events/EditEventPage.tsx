@@ -6,6 +6,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from "react-route
 import { api } from "../../lib/api";
 import { useAuth } from "../auth/auth-context";
 import { Icon } from "../../components/Icon";
+import { ToggleField } from "../../components/ToggleField";
 import { eventFormSchema, eventFormToPatchPayload, toDatetimeLocalValue, type EventFormValues } from "./eventForm";
 
 type EventDto = {
@@ -16,6 +17,9 @@ type EventDto = {
   endAt: string;
   location: string | null;
   status: EventFormValues["status"];
+  enableMesas: boolean;
+  enableNotes: boolean;
+  mesaCount: number | null;
 };
 
 export function EditEventPage() {
@@ -33,9 +37,11 @@ export function EditEventPage() {
     enabled: Boolean(id)
   });
 
-  const { register, handleSubmit, formState, reset } = useForm<EventFormValues>({
+  const { register, handleSubmit, formState, reset, watch, setValue } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema)
   });
+  const enableMesas = watch("enableMesas");
+  const enableNotes = watch("enableNotes");
 
   useEffect(() => {
     if (!eventQuery.data) return;
@@ -46,7 +52,11 @@ export function EditEventPage() {
       startAt: toDatetimeLocalValue(e.startAt),
       endAt: toDatetimeLocalValue(e.endAt),
       location: e.location ?? "",
-      status: e.status
+      status: e.status,
+      kind: "gcba",
+      enableMesas: e.enableMesas,
+      enableNotes: e.enableNotes,
+      mesaCount: e.mesaCount ?? undefined
     });
   }, [eventQuery.data, reset]);
 
@@ -136,6 +146,46 @@ export function EditEventPage() {
             <option value="closed">Cerrado</option>
             <option value="archived">Archivado</option>
           </select>
+
+          <fieldset className="event-options-fieldset form-block-spaced">
+            <legend className="label-md field-label">Opciones del evento</legend>
+            <ToggleField
+              id="enableMesas"
+              label="¿Necesitás mesas?"
+              description="Al acreditar, cada persona debe asignarse a una mesa."
+              checked={Boolean(enableMesas)}
+              onChange={(checked) => {
+                setValue("enableMesas", checked, { shouldValidate: true });
+                if (!checked) setValue("mesaCount", undefined);
+              }}
+            />
+            {enableMesas ? (
+              <div style={{ marginTop: "0.75rem", maxWidth: "12rem" }}>
+                <label className="label-md field-label" htmlFor="mesaCount">
+                  Cantidad de mesas
+                </label>
+                <input
+                  id="mesaCount"
+                  type="number"
+                  min={1}
+                  max={99}
+                  className="input input--boxed"
+                  {...register("mesaCount")}
+                />
+                {formState.errors.mesaCount ? (
+                  <p className="message-error">{formState.errors.mesaCount.message}</p>
+                ) : null}
+              </div>
+            ) : null}
+            <ToggleField
+              id="enableNotes"
+              label="¿Necesitás notas?"
+              description="Habilita una pestaña para cargar una nota por persona acreditada."
+              checked={Boolean(enableNotes)}
+              onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+          </fieldset>
+
           <div className="row gap create-event-card__actions">
             <button className="btn btn-primary" type="submit" disabled={mutation.isPending}>
               <Icon name="save" />

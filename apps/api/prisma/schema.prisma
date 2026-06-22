@@ -69,7 +69,11 @@ model Event {
   location         String?
   status           EventStatus         @default(draft)
   kind             EventKind           @default(gcba)
-  /** Cantidad de mesas para asignación automática (solo eventos vecinos). */
+  /** Habilita asignación de mesas al acreditar (GCBA y vecinos). */
+  enableMesas      Boolean             @default(false)
+  /** Habilita pestaña de notas post-acreditación por persona. */
+  enableNotes      Boolean             @default(false)
+  /** Cantidad de mesas cuando enableMesas está activo. */
   mesaCount        Int?
   /** ID del Google Spreadsheet para sincronizar acreditados (solo vecinos). */
   googleSpreadsheetId String?
@@ -137,6 +141,8 @@ model EventPerson {
   accreditedAt        DateTime?
   accreditedByUserId  String?
   accreditationNotes  String?
+  /** Nota operativa post-acreditación (pestaña Notas). */
+  eventNotes          String?
   extraData           Json?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt

@@ -18,6 +18,8 @@ export type EventCardDto = {
   status: EventStatus;
   kind: "gcba" | "vecinos";
   location: string | null;
+  enableMesas?: boolean;
+  enableNotes?: boolean;
   mesaCount?: number | null;
   googleSheetName?: string | null;
   totalPeople: number;
@@ -127,6 +129,7 @@ export type EventPersonDto = {
   status: "pending" | "accredited";
   source: "manual" | "imported";
   accreditedAt: string | null;
+  eventNotes?: string | null;
   extraData?: Record<string, unknown> | null;
   person: PersonSummaryDto;
   accreditedByUser?: { id: string; name: string } | null;

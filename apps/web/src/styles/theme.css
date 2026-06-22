@@ -2827,3 +2827,170 @@ a.tab-btn--informe {
   background: var(--primary, #1565c0);
   color: #fff;
 }
+
+/* —— Toggles de opciones de evento —— */
+.event-options-fieldset {
+  border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.event-options-fieldset legend {
+  padding: 0 0.35rem;
+}
+
+.toggle-field__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.toggle-field__title {
+  display: block;
+  font-weight: 700;
+  color: var(--on-surface, #fff);
+}
+
+.toggle-field__desc {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--on-surface-variant);
+  font-weight: 500;
+}
+
+.toggle-field__switch-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 1.5rem;
+}
+
+.toggle-field__input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.toggle-field__track {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--surface-variant, #3a3f47);
+  transition: background 0.2s ease;
+  position: relative;
+}
+
+.toggle-field__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.toggle-field__input:checked + .toggle-field__track {
+  background: var(--primary, #1565c0);
+}
+
+.toggle-field__input:checked + .toggle-field__track::after {
+  transform: translateX(1.25rem);
+}
+
+.toggle-field__input:focus-visible + .toggle-field__track {
+  outline: 2px solid var(--primary, #1565c0);
+  outline-offset: 2px;
+}
+
+/* —— Pestaña Notas post-acreditación —— */
+.notes-layout {
+  align-items: stretch;
+  min-height: 28rem;
+}
+
+.notes-layout__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+.notes-person-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.notes-person-list__item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.notes-person-list__item:hover {
+  background: var(--surface-variant, rgba(255, 255, 255, 0.05));
+}
+
+.notes-person-list__item--active {
+  border-color: var(--primary, #1565c0);
+  background: var(--primary-container, rgba(21, 101, 192, 0.15));
+}
+
+.notes-person-list__name {
+  display: block;
+  font-weight: 700;
+}
+
+.notes-person-list__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--on-surface-variant);
+}
+
+.notes-layout__editor {
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-editor__doc {
+  margin: 0.25rem 0 0;
+  color: var(--on-surface-variant);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 900px) {
+  .notes-layout {
+    grid-template-columns: 1fr;
+  }
+}
