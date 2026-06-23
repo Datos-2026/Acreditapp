@@ -20,6 +20,7 @@ export type EventCardDto = {
   location: string | null;
   enableMesas?: boolean;
   enableNotes?: boolean;
+  meetingMinutes?: string | null;
   mesaCount?: number | null;
   googleSheetName?: string | null;
   totalPeople: number;

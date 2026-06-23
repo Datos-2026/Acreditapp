@@ -142,6 +142,10 @@ const eventNotesBodySchema = z.object({
   eventNotes: z.string().optional().nullable()
 });
 
+const meetingMinutesBodySchema = z.object({
+  meetingMinutes: z.string().optional().nullable()
+});
+
 const vecinosMesaConfigSchema = z.object({
   mesaCount: z.number().int().min(1).max(99)
 });
@@ -1632,6 +1636,45 @@ router.post(
         entityId: eventPerson.id
       });
       res.json(eventPerson);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/** Acta / minuta general del encuentro (pestaña Notas generales). */
+router.patch(
+  "/:id/meeting-minutes",
+  requireRoles(...ACCREDIT_ROLES),
+  validateBody(meetingMinutesBodySchema),
+  async (req, res, next) => {
+    try {
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+      const event = await prisma.event.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: { enableNotes: true }
+      });
+      if (!event.enableNotes) {
+        throw new AppError("Este evento no tiene notas habilitadas", 400);
+      }
+
+      const meetingMinutes =
+        req.body.meetingMinutes == null || String(req.body.meetingMinutes).trim() === ""
+          ? null
+          : String(req.body.meetingMinutes);
+
+      const updated = await prisma.event.update({
+        where: { id: req.params.id },
+        data: { meetingMinutes }
+      });
+
+      await createAuditLog({
+        req,
+        action: "event.updateMeetingMinutes",
+        entityType: "event",
+        entityId: updated.id
+      });
+      res.json({ id: updated.id, meetingMinutes: updated.meetingMinutes });
     } catch (error) {
       next(error);
     }
