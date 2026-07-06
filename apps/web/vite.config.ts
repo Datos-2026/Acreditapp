@@ -16,7 +16,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "pwa-icon.svg", "apple-touch-icon.png"],
+      includeAssets: ["favicon-32x32.png", "apple-touch-icon.png"],
       manifest: {
         name: "GCBA | Acreditación",
         short_name: "Acreditación",

@@ -4,15 +4,26 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(root, "../..");
 const publicDir = path.join(root, "public");
-const source = path.join(publicDir, "pwa-icon.svg");
+const iconoDir = path.join(repoRoot, "icono");
 
-if (!fs.existsSync(source)) {
-  console.error("generate-pwa-icons: falta public/pwa-icon.svg");
+const sourceCandidates = [
+  path.join(iconoDir, "cono.png"),
+  path.join(iconoDir, "icono.png"),
+  path.join(publicDir, "pwa-icon-source.png"),
+  path.join(publicDir, "pwa-icon.svg")
+];
+
+const source = sourceCandidates.find((candidate) => fs.existsSync(candidate));
+
+if (!source) {
+  console.error("generate-pwa-icons: no se encontro icono en icono/ ni public/");
   process.exit(1);
 }
 
 const sizes = [
+  { name: "favicon-32x32.png", size: 32 },
   { name: "pwa-192x192.png", size: 192 },
   { name: "pwa-512x512.png", size: 512 },
   { name: "apple-touch-icon.png", size: 180 }
@@ -20,6 +31,6 @@ const sizes = [
 
 for (const { name, size } of sizes) {
   const target = path.join(publicDir, name);
-  await sharp(source).resize(size, size).png().toFile(target);
-  console.log(`generate-pwa-icons: ${name}`);
+  await sharp(source).resize(size, size, { fit: "cover" }).png().toFile(target);
+  console.log(`generate-pwa-icons: ${name} <- ${path.basename(source)}`);
 }
