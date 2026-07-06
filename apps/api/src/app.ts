@@ -31,7 +31,9 @@ app.use(
       directives: {
         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        "font-src": ["'self'", "https://fonts.gstatic.com"]
+        "font-src": ["'self'", "https://fonts.gstatic.com"],
+        "worker-src": ["'self'"],
+        "manifest-src": ["'self'"]
       }
     }
   })
@@ -94,6 +96,11 @@ if (fs.existsSync(spaIndexPath)) {
 const spaFallback: RequestHandler = (req, res, next) => {
   if (req.path.startsWith("/api")) {
     res.status(404).json({ message: "Recurso no encontrado" });
+    return;
+  }
+  /** Evita devolver index.html para .js/.css inexistentes (MIME text/html en módulos). */
+  if (/\.[a-zA-Z0-9]+$/.test(req.path) && !req.path.endsWith(".html")) {
+    res.status(404).type("text/plain").send("Not found");
     return;
   }
   if (fs.existsSync(spaIndexPath)) {
