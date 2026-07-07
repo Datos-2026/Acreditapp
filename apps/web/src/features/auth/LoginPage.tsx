@@ -23,12 +23,8 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-hero">
-        <p className="login-hero__kicker">
-          Gobierno de la Ciudad
-        </p>
-        <h1>Acreditación institucional con claridad operativa</h1>
         <p>
-          Ingresá con tu cuenta para operar terminales de check-in, importar bases y consultar métricas por evento.
+          Ingresá a tu cuenta para operar terminal, importar bases y consultar métricas por evento.
         </p>
       </div>
       <div className="login-panel">
@@ -39,9 +35,6 @@ export function LoginPage() {
             </div>
             <div>
               <h2 className="login-card__title">Iniciar sesión</h2>
-              <p className="login-card__subtitle">
-                GCBA | Acreditación
-              </p>
             </div>
           </div>
           <form
@@ -90,7 +83,7 @@ export function LoginPage() {
             <label className="label-md login-form__label" htmlFor="email">
               Correo electrónico
             </label>
-            <input id="email" className="input input--boxed" type="email" placeholder="nombre@gcba.local" {...register("email")} />
+            <input id="email" className="input input--boxed" type="email" placeholder="nombre@ejemplo.com" {...register("email")} />
             <label className="label-md login-form__label login-form__label--spaced" htmlFor="password">
               Contraseña
             </label>
