@@ -23,6 +23,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-hero">
+        <p className="login-hero__kicker">ACREDITAPP</p>
         <p>
           Ingresá a tu cuenta para operar terminal, importar bases y consultar métricas por evento.
         </p>

@@ -706,7 +706,7 @@ a.tab-btn--informe {
 }
 
 .login-hero {
-  background: #cc0000; /* prueba temporal — revertir a gradiente institucional */
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 55%, #1a4a63 100%);
   color: var(--on-primary);
   padding: 3rem;
   display: flex;
