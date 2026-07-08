@@ -136,7 +136,8 @@ describe("validateImportRow con DNI", () => {
       apellido: "Pérez"
     });
     expect(validateImportRow(canonical)).toEqual([]);
-    expect(canonical.dni).toBeTruthy();
+    expect(canonical.cuil).toBe("20313149642");
+    expect(canonical.dni).toBeUndefined();
   });
 });
 
@@ -160,7 +161,8 @@ describe("validateVecinoImportRow", () => {
       apellido: "García"
     });
     expect(validateVecinoImportRow(canonical)).toEqual([]);
-    expect(canonical.dni).toBeTruthy();
+    expect(canonical.cuil).toBe("20313149642");
+    expect(canonical.dni).toBeUndefined();
   });
 
   it("rechaza identidad inválida", async () => {

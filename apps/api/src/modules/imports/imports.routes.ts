@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import { normalizeCuil, syntheticCuilFromDni, normalizeDni, dniFromCuil } from "@gcba/shared";
+import { normalizeCuil, syntheticCuilFromDni, normalizeDni } from "@gcba/shared";
 import { EventKind, Prisma } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
@@ -111,17 +111,11 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
       kind === "vecinos" ? normalizeVecinoImportCanonical(canonical) : normalizeImportCanonical(canonical);
     const rowErrors =
       kind === "vecinos" ? validateVecinoImportRow(normalizedCanonical) : validateImportRow(normalizedCanonical);
-    const idKey =
-      kind === "vecinos"
-        ? String(normalizedCanonical.dni ?? "") || importRowIdKey(normalizedCanonical)
-        : importRowIdKey(normalizedCanonical);
+    const idKey = importRowIdKey(normalizedCanonical);
     if (idKey && idSet.has(idKey)) {
       duplicateRows += 1;
-      rowErrors.push(
-        kind === "vecinos" || normalizeDni(String(normalizedCanonical.dni ?? ""))
-          ? "DNI duplicado en archivo"
-          : "CUIL duplicado en archivo"
-      );
+      const hasCuil = normalizeCuil(String(normalizedCanonical.cuil ?? "")).length === 11;
+      rowErrors.push(hasCuil ? "CUIL duplicado en archivo" : "DNI duplicado en archivo");
     } else if (idKey) {
       idSet.add(idKey);
     }
@@ -193,18 +187,22 @@ async function importParsedRows(
     if (kind === "vecinos") {
       const identity = resolveImportIdentity(mapped);
       if (!identity) continue;
-      const dni = identity.dni ?? dniFromCuil(identity.cuil);
-      if (!dni) continue;
       const cuil = identity.cuil;
+      const dni = identity.dni;
       const extraPayload = buildVecinoExtraData(mapped, row.extraData);
-      const existingByDni = await prisma.person.findFirst({ where: { dni } });
-      const person = existingByDni
+      const existingByCuil = await prisma.person.findUnique({ where: { cuilNormalized: cuil } });
+      const existingByDni = dni ? await prisma.person.findFirst({ where: { dni } }) : null;
+      const existing = existingByCuil ?? existingByDni;
+      const cuilRaw = String(mapped.cuil ?? mapped.cuit ?? cuil);
+      const person = existing
         ? await prisma.person.update({
-            where: { id: existingByDni.id },
+            where: { id: existing.id },
             data: {
               firstName,
               lastName,
-              dni,
+              cuilNormalized: cuil,
+              cuilRaw,
+              dni: dni ?? undefined,
               email: mapped.email ? String(mapped.email) : undefined,
               phone: mapped.telefono ? String(mapped.telefono) : undefined,
               address: mapped.direccion ? String(mapped.direccion) : undefined,
@@ -216,7 +214,7 @@ async function importParsedRows(
             where: { cuilNormalized: cuil },
             create: {
               cuilNormalized: cuil,
-              cuilRaw: dni,
+              cuilRaw,
               dni,
               firstName,
               lastName,
@@ -229,7 +227,8 @@ async function importParsedRows(
             update: {
               firstName,
               lastName,
-              dni,
+              cuilRaw,
+              dni: dni ?? undefined,
               email: mapped.email ? String(mapped.email) : undefined,
               phone: mapped.telefono ? String(mapped.telefono) : undefined,
               address: mapped.direccion ? String(mapped.direccion) : undefined,
@@ -253,14 +252,17 @@ async function importParsedRows(
         }
       });
     } else {
-      const cuil = normalizeCuil(String(mapped.cuil ?? ""));
-      const dni = normalizeDni(String(mapped.dni ?? ""));
+      const identity = resolveImportIdentity(mapped);
+      if (!identity) continue;
+      const cuil = identity.cuil;
+      const dni = identity.dni;
+      const cuilRaw = String(mapped.cuil ?? mapped.cuit ?? cuil);
       const extraPayload = buildImportExtraData(mapped, row.extraData, ["presente"]);
       const person = await prisma.person.upsert({
         where: { cuilNormalized: cuil },
         create: {
           cuilNormalized: cuil,
-          cuilRaw: dni ?? String(mapped.cuil ?? cuil),
+          cuilRaw,
           dni,
           firstName,
           lastName,
@@ -273,6 +275,7 @@ async function importParsedRows(
         update: {
           firstName,
           lastName,
+          cuilRaw,
           dni: dni ?? undefined,
           email: mapped.email ? String(mapped.email) : undefined,
           phone: mapped.telefono ? String(mapped.telefono) : undefined,
@@ -440,14 +443,31 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
 
     const parsed = parseWorkbookRows(req.file.buffer, kind);
     if (kind === "vecinos") {
-      const dnis = parsed.rows
-        .map((row) => resolveImportIdentity(row.canonical)?.dni)
-        .filter((d): d is string => Boolean(d));
+      const identities = parsed.rows
+        .map((row) => resolveImportIdentity(row.canonical))
+        .filter((id): id is NonNullable<typeof id> => Boolean(id));
+      const dnis = identities.map((id) => id.dni).filter((d): d is string => Boolean(d));
+      const cuils = identities.map((id) => id.cuil);
       const existingInEvent = await prisma.eventPerson.findMany({
-        where: { eventId: req.params.id, person: { dni: { in: dnis } } },
+        where: {
+          eventId: req.params.id,
+          person: {
+            OR: [
+              ...(dnis.length ? [{ dni: { in: dnis } }] : []),
+              ...(cuils.length ? [{ cuilNormalized: { in: cuils } }] : [])
+            ]
+          }
+        },
         include: { person: true }
       });
-      const existingGlobal = await prisma.person.findMany({ where: { dni: { in: dnis } } });
+      const existingGlobal = await prisma.person.findMany({
+        where: {
+          OR: [
+            ...(dnis.length ? [{ dni: { in: dnis } }] : []),
+            ...(cuils.length ? [{ cuilNormalized: { in: cuils } }] : [])
+          ]
+        }
+      });
       res.json({
         originalFilename: req.file.originalname,
         sheetName: parsed.sheetName,

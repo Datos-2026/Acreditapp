@@ -1,4 +1,4 @@
-import { normalizeCuil, normalizeDni, syntheticCuilFromDni, dniFromCuil } from "@gcba/shared";
+import { normalizeCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
 
 /** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
 export function normalizeImportSheetHeader(header: string): string {
@@ -161,10 +161,6 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
 
   const dni = normalizeDni(String(normalized.dni ?? ""));
   const cuilDigits = normalizeCuil(String(normalized.cuil ?? ""));
-  if (cuilDigits.length === 11 && !dni) {
-    const fromCuil = dniFromCuil(cuilDigits);
-    if (fromCuil) normalized.dni = fromCuil;
-  }
   if (dni) {
     normalized.dni = dni;
     if (!cuilDigits || cuilDigits.length !== 11) {
@@ -190,7 +186,7 @@ export function resolveImportIdentity(canonical: Record<string, unknown>): {
   if (cuilDigits.length === 11) {
     return {
       cuil: cuilDigits,
-      dni: normalizeDni(String(normalized.dni ?? "")) ?? dniFromCuil(cuilDigits)
+      dni: normalizeDni(String(normalized.dni ?? ""))
     };
   }
   const dni = normalizeDni(String(normalized.dni ?? ""));
