@@ -1,4 +1,4 @@
-import { normalizeCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
+import { normalizeCuil, normalizeDni, syntheticCuilFromDni, dniFromCuil } from "@gcba/shared";
 
 /** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
 export function normalizeImportSheetHeader(header: string): string {
@@ -160,9 +160,13 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
   }
 
   const dni = normalizeDni(String(normalized.dni ?? ""));
+  const cuilDigits = normalizeCuil(String(normalized.cuil ?? ""));
+  if (cuilDigits.length === 11 && !dni) {
+    const fromCuil = dniFromCuil(cuilDigits);
+    if (fromCuil) normalized.dni = fromCuil;
+  }
   if (dni) {
     normalized.dni = dni;
-    const cuilDigits = normalizeCuil(String(normalized.cuil ?? ""));
     if (!cuilDigits || cuilDigits.length !== 11) {
       normalized.cuil = syntheticCuilFromDni(dni);
       normalized.cuit = normalized.cuil;
@@ -176,17 +180,36 @@ export function normalizeImportCanonical(canonical: Record<string, unknown>): Re
   return normalized;
 }
 
+/** Resuelve identidad de fila: CUIL de 11 dígitos y/o DNI (6–8 dígitos). */
+export function resolveImportIdentity(canonical: Record<string, unknown>): {
+  cuil: string;
+  dni: string | null;
+} | null {
+  const normalized = normalizeImportCanonical(canonical);
+  const cuilDigits = normalizeCuil(String(normalized.cuil ?? ""));
+  if (cuilDigits.length === 11) {
+    return {
+      cuil: cuilDigits,
+      dni: normalizeDni(String(normalized.dni ?? "")) ?? dniFromCuil(cuilDigits)
+    };
+  }
+  const dni = normalizeDni(String(normalized.dni ?? ""));
+  if (dni) {
+    return { cuil: syntheticCuilFromDni(dni), dni };
+  }
+  return null;
+}
+
 /** Clave de identificación para deduplicar filas en importación (CUIL o DNI). */
 export function importRowIdKey(canonical: Record<string, unknown>): string {
-  const cuil = normalizeCuil(String(canonical.cuil ?? ""));
-  if (cuil.length === 11) return cuil;
-  return normalizeDni(String(canonical.dni ?? "")) ?? "";
+  const identity = resolveImportIdentity(canonical);
+  if (!identity) return "";
+  return identity.cuil.length === 11 ? identity.cuil : identity.dni ?? "";
 }
 
 export function validateImportRow(canonical: Record<string, unknown>): string[] {
-  const normalized = normalizeImportCanonical(canonical);
   const errors: string[] = [];
-  if (!importRowIdKey(normalized)) errors.push("CUIL o DNI inválido o faltante");
+  if (!resolveImportIdentity(canonical)) errors.push("CUIL o DNI inválido o faltante");
   return errors;
 }
 
@@ -229,10 +252,10 @@ export function detectUniversalImportColumn(normalized: string): string | null {
 
 export function normalizeVecinoImportCanonical(canonical: Record<string, unknown>): Record<string, unknown> {
   const normalized = normalizeImportCanonical(canonical);
-  const dni = normalizeDni(String(normalized.dni ?? ""));
-  if (dni) {
-    normalized.dni = dni;
-    normalized.cuil = syntheticCuilFromDni(dni);
+  const identity = resolveImportIdentity(normalized);
+  if (identity) {
+    normalized.cuil = identity.cuil;
+    if (identity.dni) normalized.dni = identity.dni;
   }
   if (normalized.direccion != null && normalized.direccion !== "") {
     normalized.direccion = String(normalized.direccion).trim();
@@ -246,8 +269,7 @@ export function normalizeVecinoImportCanonical(canonical: Record<string, unknown
 export function validateVecinoImportRow(canonical: Record<string, unknown>): string[] {
   const normalized = normalizeVecinoImportCanonical(canonical);
   const errors: string[] = [];
-  const dni = normalizeDni(String(normalized.dni ?? ""));
-  if (!dni) errors.push("DNI inválido o faltante");
+  if (!resolveImportIdentity(normalized)) errors.push("CUIL o DNI inválido o faltante");
   if (!String(normalized.nombre ?? "").trim()) errors.push("Nombre faltante");
   if (!String(normalized.apellido ?? "").trim()) errors.push("Apellido faltante");
   return errors;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import { normalizeCuil, syntheticCuilFromDni, normalizeDni } from "@gcba/shared";
+import { normalizeCuil, syntheticCuilFromDni, normalizeDni, dniFromCuil } from "@gcba/shared";
 import { EventKind, Prisma } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middlewares/auth";
@@ -20,6 +20,7 @@ import {
   normalizeImportCanonical,
   normalizeImportSheetHeader,
   normalizeVecinoImportCanonical,
+  resolveImportIdentity,
   validateImportRow,
   validateVecinoImportRow
 } from "./import-logic";
@@ -48,6 +49,8 @@ const gcbaCanonicalFields = [
 
 const vecinoCanonicalFields = [
   "dni",
+  "cuil",
+  "cuit",
   "nombre",
   "apellido",
   "nombreCompleto",
@@ -188,8 +191,11 @@ async function importParsedRows(
     const lastName = String(mapped.apellido ?? "").trim();
 
     if (kind === "vecinos") {
-      const dni = normalizeDni(String(mapped.dni ?? ""))!;
-      const cuil = syntheticCuilFromDni(dni);
+      const identity = resolveImportIdentity(mapped);
+      if (!identity) continue;
+      const dni = identity.dni ?? dniFromCuil(identity.cuil);
+      if (!dni) continue;
+      const cuil = identity.cuil;
       const extraPayload = buildVecinoExtraData(mapped, row.extraData);
       const existingByDni = await prisma.person.findFirst({ where: { dni } });
       const person = existingByDni
@@ -391,6 +397,10 @@ function autoDetectMapping(headers: string[]) {
       map[header] = "cargo";
       return;
     }
+    if (normalized === "ministerio" || normalized.includes("ministerio")) {
+      map[header] = "empresa";
+      return;
+    }
     if (normalized.includes("reconocidos")) {
       map[header] = "cargo";
       return;
@@ -431,7 +441,7 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
     const parsed = parseWorkbookRows(req.file.buffer, kind);
     if (kind === "vecinos") {
       const dnis = parsed.rows
-        .map((row) => normalizeDni(String(row.canonical.dni ?? "")))
+        .map((row) => resolveImportIdentity(row.canonical)?.dni)
         .filter((d): d is string => Boolean(d));
       const existingInEvent = await prisma.eventPerson.findMany({
         where: { eventId: req.params.id, person: { dni: { in: dnis } } },

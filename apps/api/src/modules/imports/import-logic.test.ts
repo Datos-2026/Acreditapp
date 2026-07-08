@@ -127,6 +127,17 @@ describe("validateImportRow con DNI", () => {
     const { validateImportRow } = await import("./import-logic");
     expect(validateImportRow({ nombre: "Ana", apellido: "García" })).toContain("CUIL o DNI inválido o faltante");
   });
+
+  it("acepta fila GCBA solo con CUIL (sin DNI en planilla)", async () => {
+    const { validateImportRow, normalizeImportCanonical } = await import("./import-logic");
+    const canonical = normalizeImportCanonical({
+      cuil: "20313149642",
+      nombre: "Juan",
+      apellido: "Pérez"
+    });
+    expect(validateImportRow(canonical)).toEqual([]);
+    expect(canonical.dni).toBeTruthy();
+  });
 });
 
 describe("validateVecinoImportRow", () => {
@@ -141,10 +152,21 @@ describe("validateVecinoImportRow", () => {
     expect(canonical.cuil).toBe("00012345678");
   });
 
-  it("rechaza DNI inválido", async () => {
+  it("acepta fila con CUIL, nombre y apellido (sin DNI en planilla)", async () => {
+    const { validateVecinoImportRow, normalizeVecinoImportCanonical } = await import("./import-logic");
+    const canonical = normalizeVecinoImportCanonical({
+      cuil: "20313149642",
+      nombre: "Ana",
+      apellido: "García"
+    });
+    expect(validateVecinoImportRow(canonical)).toEqual([]);
+    expect(canonical.dni).toBeTruthy();
+  });
+
+  it("rechaza identidad inválida", async () => {
     const { validateVecinoImportRow } = await import("./import-logic");
     expect(validateVecinoImportRow({ dni: "123", nombre: "Ana", apellido: "García" })).toContain(
-      "DNI inválido o faltante"
+      "CUIL o DNI inválido o faltante"
     );
   });
 });
