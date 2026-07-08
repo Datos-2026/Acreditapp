@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatEventSheetName,
   formatVecinoEventSheetDate,
   formatVecinoEventSheetName,
   sanitizeSheetTitle
@@ -12,15 +13,27 @@ describe("formatVecinoEventSheetDate", () => {
   });
 });
 
-describe("formatVecinoEventSheetName", () => {
-  it("usa fecha y nombre del evento", () => {
-    const name = formatVecinoEventSheetName(new Date("2026-06-16T12:00:00-03:00"), "Encuentro vecinos");
-    expect(name).toContain("16");
-    expect(name.toLowerCase()).toContain("encuentro");
+describe("formatEventSheetName", () => {
+  it("usa solo el nombre del evento", () => {
+    const name = formatEventSheetName("Encuentro vecinos");
+    expect(name).toBe("Encuentro vecinos");
     expect(name.length).toBeLessThanOrEqual(31);
   });
 
+  it("trunca nombres largos al límite de Excel", () => {
+    const longName = "Evento institucional de acreditación masiva 2026";
+    expect(formatEventSheetName(longName).length).toBeLessThanOrEqual(31);
+  });
+
   it("elimina caracteres inválidos de Excel", () => {
-    expect(sanitizeSheetTitle('16-06-2026 Evento [test]')).toBe("16-06-2026 Evento test");
+    expect(sanitizeSheetTitle("Evento [test]")).toBe("Evento test");
+  });
+});
+
+describe("formatVecinoEventSheetName", () => {
+  it("delega al nombre del evento sin fecha", () => {
+    const name = formatVecinoEventSheetName(new Date("2026-06-16T12:00:00-03:00"), "Encuentro vecinos");
+    expect(name).toBe("Encuentro vecinos");
+    expect(name).not.toMatch(/16-06-2026/);
   });
 });

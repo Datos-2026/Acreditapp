@@ -19,6 +19,7 @@ type EventDto = {
   status: EventFormValues["status"];
   enableMesas: boolean;
   enableNotes: boolean;
+  enableGoogleSheets: boolean;
   mesaCount: number | null;
 };
 
@@ -42,6 +43,7 @@ export function EditEventPage() {
   });
   const enableMesas = watch("enableMesas");
   const enableNotes = watch("enableNotes");
+  const enableGoogleSheets = watch("enableGoogleSheets");
 
   useEffect(() => {
     if (!eventQuery.data) return;
@@ -56,6 +58,7 @@ export function EditEventPage() {
       kind: "gcba",
       enableMesas: e.enableMesas,
       enableNotes: e.enableNotes,
+      enableGoogleSheets: e.enableGoogleSheets,
       mesaCount: e.mesaCount ?? undefined
     });
   }, [eventQuery.data, reset]);
@@ -183,6 +186,13 @@ export function EditEventPage() {
               description="Habilita una pestaña para cargar una nota por persona acreditada."
               checked={Boolean(enableNotes)}
               onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+            <ToggleField
+              id="enableGoogleSheets"
+              label="¿Datos volcados en un Sheets?"
+              description="Cada acreditado se envía en tiempo real a Google Sheets en una hoja con el nombre del evento."
+              checked={Boolean(enableGoogleSheets)}
+              onChange={(checked) => setValue("enableGoogleSheets", checked, { shouldValidate: true })}
             />
           </fieldset>
 

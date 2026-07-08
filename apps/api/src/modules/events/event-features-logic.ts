@@ -30,3 +30,7 @@ export function normalizeEventFeatures(input: EventFeaturesInput): NormalizedEve
 export function mesasActive(event: { enableMesas: boolean; mesaCount: number | null }): boolean {
   return event.enableMesas && event.mesaCount != null && event.mesaCount > 0;
 }
+
+export function googleSheetsActive(event: { enableGoogleSheets: boolean }): boolean {
+  return Boolean(event.enableGoogleSheets);
+}

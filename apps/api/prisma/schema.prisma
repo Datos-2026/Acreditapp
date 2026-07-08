@@ -73,13 +73,15 @@ model Event {
   enableMesas      Boolean             @default(false)
   /** Habilita pestaña de notas post-acreditación por persona. */
   enableNotes      Boolean             @default(false)
+  /** Volca acreditados en tiempo real a Google Sheets (una hoja por evento). */
+  enableGoogleSheets Boolean           @default(false)
   /** Acta / minuta general del encuentro (pestaña Notas generales). */
   meetingMinutes   String?             @db.Text
   /** Cantidad de mesas cuando enableMesas está activo. */
   mesaCount        Int?
-  /** ID del Google Spreadsheet para sincronizar acreditados (solo vecinos). */
+  /** ID del Google Spreadsheet para sincronizar acreditados. */
   googleSpreadsheetId String?
-  /** Nombre de la hoja dentro del spreadsheet (una por evento vecinos). */
+  /** Nombre de la hoja dentro del spreadsheet (una por evento). */
   googleSheetName  String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt

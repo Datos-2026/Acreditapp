@@ -22,7 +22,7 @@ import {
   VECINOS_CREATABLE_ROLES
 } from "./event-kind-access";
 import { ensureNotAlreadyAccredited, extraDataWithoutMesa } from "./event-logic";
-import { mesasActive, normalizeEventFeatures } from "./event-features-logic";
+import { mesasActive, normalizeEventFeatures, googleSheetsActive } from "./event-features-logic";
 import { buildEventReportPayload } from "../reports/build-event-report";
 import { runGeminiEventAnalysis } from "../reports/gemini-event-analysis";
 import { pickDirectoryEmail, toDirectoryPersonDto } from "../directory/directory-logic";
@@ -38,7 +38,16 @@ import {
   mesaLabel,
   parseMesaNumber
 } from "./mesa-assignment";
-import { appendVecinoAccreditationToSheet, createVecinoEventSheet, ensureVecinoEventSheet, formatGoogleSheetsError, getVecinoSheetError, isGoogleSheetsConfigured, isUnprovisionedSheetName, recordVecinoSheetError } from "./google-sheets-sync";
+import {
+  appendVecinoAccreditationToSheet,
+  createEventGoogleSheet,
+  ensureEventGoogleSheet,
+  formatGoogleSheetsError,
+  getVecinoSheetError,
+  isGoogleSheetsConfigured,
+  isUnprovisionedSheetName,
+  recordVecinoSheetError
+} from "./google-sheets-sync";
 
 const router = Router();
 router.use(requireAuth);
@@ -120,6 +129,7 @@ const eventSchema = z.object({
   kind: z.enum(["gcba", "vecinos"]).default("gcba"),
   enableMesas: z.boolean().default(false),
   enableNotes: z.boolean().default(false),
+  enableGoogleSheets: z.boolean().default(false),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -134,6 +144,7 @@ const eventPatchSchema = z.object({
   kind: z.enum(["gcba", "vecinos"]).optional(),
   enableMesas: z.boolean().optional(),
   enableNotes: z.boolean().optional(),
+  enableGoogleSheets: z.boolean().optional(),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -256,9 +267,10 @@ router.post(
     assertRoleCanCreateEventKind(req.auth!.role, kind);
 
     let googleSheetName: string | null = null;
-    if (kind === "vecinos" && isGoogleSheetsConfigured()) {
+    const enableGoogleSheets = Boolean(req.body.enableGoogleSheets);
+    if (enableGoogleSheets && isGoogleSheetsConfigured()) {
       try {
-        googleSheetName = await createVecinoEventSheet(new Date(req.body.startAt), req.body.name);
+        googleSheetName = await createEventGoogleSheet(req.body.name);
       } catch (err) {
         logger.warn({ err, eventName: req.body.name }, "No se pudo crear hoja en Google Sheets al crear evento");
       }
@@ -281,6 +293,7 @@ router.post(
         kind,
         slug: slugFromEventName(req.body.name),
         googleSheetName,
+        enableGoogleSheets,
         ...features
       }
     });
@@ -586,13 +599,36 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
   }
 });
 
+/** Estado de Google Sheets (eventos con enableGoogleSheets). */
+router.get("/:id/sheets/stats", async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { enableGoogleSheets: true, googleSheetName: true }
+    });
+    if (!event.enableGoogleSheets) {
+      res.status(400).json({ message: "Este evento no tiene Google Sheets habilitado" });
+      return;
+    }
+    res.json({
+      sheetsConfigured: isGoogleSheetsConfigured(),
+      googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
+      googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+      lastSheetError: getVecinoSheetError(req.params.id)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /** Estado de mesas (eventos con enableMesas y mesaCount configurado). */
 router.get("/:id/mesas/stats", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
-      select: { kind: true, enableMesas: true, mesaCount: true, googleSheetName: true }
+      select: { kind: true, enableMesas: true, enableGoogleSheets: true, mesaCount: true, googleSheetName: true }
     });
     if (!event.enableMesas) {
       res.status(400).json({ message: "Este evento no tiene mesas habilitadas" });
@@ -607,7 +643,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
         unassignedAccredited: 0,
         autoAssignEnabled: false,
         sheetsConfigured: isGoogleSheetsConfigured(),
-        googleSheetsEnabled: isGoogleSheetsConfigured(),
+        googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
         googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
         lastSheetError: getVecinoSheetError(req.params.id)
       });
@@ -618,7 +654,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
       ...stats,
       autoAssignEnabled: true,
       sheetsConfigured: isGoogleSheetsConfigured(),
-      googleSheetsEnabled: isGoogleSheetsConfigured(),
+      googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
       lastSheetError: getVecinoSheetError(req.params.id)
     });
@@ -887,6 +923,29 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
       data.enableMesas = features.enableMesas;
       data.enableNotes = features.enableNotes;
       data.mesaCount = features.mesaCount;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "enableGoogleSheets")) {
+      data.enableGoogleSheets = Boolean(req.body.enableGoogleSheets);
+    }
+    const currentForSheets = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { name: true, enableGoogleSheets: true, googleSheetName: true }
+    });
+    const nextEnableSheets = Object.prototype.hasOwnProperty.call(req.body, "enableGoogleSheets")
+      ? Boolean(req.body.enableGoogleSheets)
+      : currentForSheets.enableGoogleSheets;
+    if (
+      nextEnableSheets &&
+      isGoogleSheetsConfigured() &&
+      isUnprovisionedSheetName(currentForSheets.googleSheetName)
+    ) {
+      try {
+        data.googleSheetName = await createEventGoogleSheet(
+          typeof req.body.name === "string" ? req.body.name : currentForSheets.name
+        );
+      } catch (err) {
+        logger.warn({ err, eventId: req.params.id }, "No se pudo crear hoja en Google Sheets al actualizar evento");
+      }
     }
     if (typeof req.body.name === "string") {
       data.slug = slugFromEventName(req.body.name);
@@ -1550,6 +1609,7 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
           name: true,
           startAt: true,
           enableMesas: true,
+          enableGoogleSheets: true,
           mesaCount: true,
           googleSheetName: true
         }
@@ -1583,10 +1643,10 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
       include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
     });
 
-    if (event.kind === "vecinos" && isGoogleSheetsConfigured()) {
+    if (googleSheetsActive(event) && isGoogleSheetsConfigured()) {
       void (async () => {
         try {
-          const sheetName = await ensureVecinoEventSheet(event);
+          const sheetName = await ensureEventGoogleSheet(event);
           if (sheetName) await appendVecinoAccreditationToSheet(req.params.id, sheetName, eventPerson);
         } catch (err) {
           recordVecinoSheetError(req.params.id, formatGoogleSheetsError(err));

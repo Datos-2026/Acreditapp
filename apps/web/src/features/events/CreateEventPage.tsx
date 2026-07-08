@@ -23,11 +23,13 @@ export function CreateEventPage() {
       description: "",
       kind: forceVecinos ? "vecinos" : "gcba",
       enableMesas: false,
-      enableNotes: false
+      enableNotes: false,
+      enableGoogleSheets: false
     }
   });
   const enableMesas = watch("enableMesas");
   const enableNotes = watch("enableNotes");
+  const enableGoogleSheets = watch("enableGoogleSheets");
   const mutation = useMutation({
     mutationFn: async (values: EventFormValues) => {
       const { data } = await api.post<{ id: string }>("/events", eventFormToPayload(values));
@@ -152,6 +154,13 @@ export function CreateEventPage() {
               description="Habilita una pestaña para cargar una nota por persona acreditada."
               checked={enableNotes}
               onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+            <ToggleField
+              id="enableGoogleSheets"
+              label="¿Datos volcados en un Sheets?"
+              description="Cada acreditado se envía en tiempo real a Google Sheets en una hoja con el nombre del evento."
+              checked={enableGoogleSheets}
+              onChange={(checked) => setValue("enableGoogleSheets", checked, { shouldValidate: true })}
             />
           </fieldset>
 

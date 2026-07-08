@@ -192,20 +192,15 @@ export function sanitizeSheetTitle(raw: string): string {
 
 
 
-export function formatVecinoEventSheetName(startAt: Date, eventName?: string): string {
+export function formatEventSheetName(eventName: string): string {
+  const trimmed = eventName?.trim();
+  if (!trimmed) return sanitizeSheetTitle("Evento");
+  return sanitizeSheetTitle(trimmed);
+}
 
-  const datePart = formatVecinoEventSheetDate(startAt);
-
-  if (!eventName?.trim()) return sanitizeSheetTitle(datePart);
-
-  const suffix = ` ${eventName.trim()}`;
-
-  const maxNameLen = SHEET_TITLE_MAX - datePart.length;
-
-  if (maxNameLen <= 1) return sanitizeSheetTitle(datePart);
-
-  return sanitizeSheetTitle(`${datePart}${suffix.slice(0, maxNameLen)}`);
-
+/** @deprecated Usar formatEventSheetName (solo nombre del evento). */
+export function formatVecinoEventSheetName(_startAt: Date, eventName?: string): string {
+  return formatEventSheetName(eventName ?? "");
 }
 
 
@@ -297,135 +292,84 @@ async function writeSheetHeader(
 
 
 /**
-
- * Crea una hoja nueva en el libro global de vecinos (una por evento).
-
+ * Crea una hoja nueva en el libro global (una por evento, nombre = evento).
  * Si ya existe el mismo título, agrega sufijo (2), (3), etc.
-
  */
-
-export async function createVecinoEventSheet(startAt: Date, eventName: string): Promise<string | null> {
-
+export async function createEventGoogleSheet(eventName: string): Promise<string | null> {
   const spreadsheetId = getSpreadsheetId();
-
   const sheets = getSheetsClient();
-
   if (!spreadsheetId || !sheets) return null;
 
-
-
   const existing = await listSheetTitles(sheets, spreadsheetId);
-
-  let candidate = formatVecinoEventSheetName(startAt, eventName);
-
+  const baseName = formatEventSheetName(eventName);
+  let candidate = baseName;
   let n = 2;
-
   while (existing.has(candidate)) {
-
     const suffix = ` (${n})`;
-
-    const datePart = formatVecinoEventSheetDate(startAt);
-
-    const room = SHEET_TITLE_MAX - suffix.length;
-
-    candidate = sanitizeSheetTitle(`${datePart.slice(0, room)}${suffix}`);
-
+    const maxBase = SHEET_TITLE_MAX - suffix.length;
+    candidate = sanitizeSheetTitle(`${baseName.slice(0, maxBase)}${suffix}`);
     n += 1;
-
   }
 
-
-
   await sheets.spreadsheets.batchUpdate({
-
     spreadsheetId,
-
     requestBody: {
-
       requests: [
-
         {
-
           addSheet: {
-
             properties: { title: candidate }
-
           }
-
         }
-
       ]
-
     }
-
   });
 
-
-
   await writeSheetHeader(sheets, spreadsheetId, candidate);
-
-  logger.info({ spreadsheetId, sheetName: candidate }, "Hoja de evento vecinos creada en Google Sheets");
-
+  logger.info({ spreadsheetId, sheetName: candidate }, "Hoja de evento creada en Google Sheets");
   return candidate;
+}
 
+/** @deprecated Usar createEventGoogleSheet */
+export async function createVecinoEventSheet(_startAt: Date, eventName: string): Promise<string | null> {
+  return createEventGoogleSheet(eventName);
 }
 
 
 
 /** Asegura hoja del evento (crea si falta o si el nombre guardado no existe en el libro). */
-
-export async function ensureVecinoEventSheet(
-
-  event: Pick<Event, "id" | "startAt" | "name" | "googleSheetName">
-
+export async function ensureEventGoogleSheet(
+  event: Pick<Event, "id" | "name" | "googleSheetName">
 ): Promise<string | null> {
-
   const spreadsheetId = getSpreadsheetId();
-
   const sheets = getSheetsClient();
-
   if (!spreadsheetId || !sheets) return null;
 
-
-
   const storedName = event.googleSheetName?.trim();
-
   if (storedName && !isUnprovisionedSheetName(storedName)) {
-
     const exists = await sheetExists(sheets, spreadsheetId, storedName);
-
     if (exists) return storedName;
-
     logger.warn(
-
       { eventId: event.id, sheetName: storedName, spreadsheetId },
-
       "Hoja guardada no existe en el spreadsheet; se creará una nueva"
-
     );
-
   }
 
-
-
-  const sheetName = await createVecinoEventSheet(event.startAt, event.name);
-
+  const sheetName = await createEventGoogleSheet(event.name);
   if (!sheetName) return null;
 
-
-
   const { prisma } = await import("../../lib/prisma");
-
   await prisma.event.update({
-
     where: { id: event.id },
-
     data: { googleSheetName: sheetName }
-
   });
-
   return sheetName;
+}
 
+/** @deprecated Usar ensureEventGoogleSheet */
+export async function ensureVecinoEventSheet(
+  event: Pick<Event, "id" | "startAt" | "name" | "googleSheetName">
+): Promise<string | null> {
+  return ensureEventGoogleSheet(event);
 }
 
 
@@ -440,38 +384,33 @@ function formatAccreditedAt(date: Date | null): string {
 
 
 
-export function buildVecinoSheetRow(eventPerson: AccreditedRow): string[] {
+function documentForSheet(person: Person): string {
+  const dni = person.dni?.trim();
+  if (dni) return dni;
+  return person.cuilNormalized?.trim() ?? "";
+}
 
+export function buildEventSheetRow(eventPerson: AccreditedRow): string[] {
   const extra = (eventPerson.extraData ?? {}) as Record<string, unknown>;
-
   const mesa = String(extra.mesa ?? "").trim();
-
   const direccion = String(extra.direccion ?? eventPerson.person.address ?? "").trim();
-
   return [
-
-    eventPerson.person.dni ?? "",
-
+    documentForSheet(eventPerson.person),
     eventPerson.person.lastName,
-
     eventPerson.person.firstName,
-
     eventPerson.person.comuna ?? "",
-
     direccion,
-
     eventPerson.person.phone ?? "",
-
     mesa,
-
     formatAccreditedAt(eventPerson.accreditedAt),
-
     eventPerson.accreditedByUser?.name ?? "",
-
     eventPerson.source === "manual" ? "Fuera de base" : "Base importada"
-
   ];
+}
 
+/** @deprecated Usar buildEventSheetRow */
+export function buildVecinoSheetRow(eventPerson: AccreditedRow): string[] {
+  return buildEventSheetRow(eventPerson);
 }
 
 
@@ -548,7 +487,7 @@ export async function appendVecinoAccreditationToSheet(
 
       insertDataOption: "INSERT_ROWS",
 
-      requestBody: { values: [buildVecinoSheetRow(eventPerson)] }
+      requestBody: { values: [buildEventSheetRow(eventPerson)] }
 
     });
 

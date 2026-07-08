@@ -20,11 +20,19 @@ export type EventCardDto = {
   location: string | null;
   enableMesas?: boolean;
   enableNotes?: boolean;
+  enableGoogleSheets?: boolean;
   meetingMinutes?: string | null;
   mesaCount?: number | null;
   googleSheetName?: string | null;
   totalPeople: number;
   accreditedPeople: number;
+};
+
+export type GoogleSheetsStatsDto = {
+  sheetsConfigured: boolean;
+  googleSheetsEnabled: boolean;
+  googleSheetName?: string | null;
+  lastSheetError?: string | null;
 };
 
 export type MesaStatRowDto = {

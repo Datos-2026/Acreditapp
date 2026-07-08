@@ -13,6 +13,7 @@ export const eventFormSchema = z
     kind: z.enum(EVENT_KIND_OPTIONS).default("gcba"),
     enableMesas: z.boolean().default(false),
     enableNotes: z.boolean().default(false),
+    enableGoogleSheets: z.boolean().default(false),
     mesaCount: z.preprocess(
       (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
       z.number().int().min(1).max(99).optional()
@@ -39,6 +40,7 @@ function eventFeaturesPayload(values: EventFormValues) {
   return {
     enableMesas: values.enableMesas,
     enableNotes: values.enableNotes,
+    enableGoogleSheets: values.enableGoogleSheets,
     mesaCount: values.enableMesas ? (values.mesaCount ?? null) : null
   };
 }

@@ -37,6 +37,7 @@ import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
 import { VecinoMesasPanel } from "./VecinoMesasPanel";
+import { GoogleSheetsStatusBar } from "./GoogleSheetsStatusBar";
 import { EventNotesPanel } from "./EventNotesPanel";
 
 type EventPerson = {
@@ -290,6 +291,7 @@ export function EventDetailPage() {
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
+  const enableGoogleSheets = Boolean(eventQuery.data?.enableGoogleSheets);
   const enableNotes = Boolean(eventQuery.data?.enableNotes);
   const mesaCount = eventQuery.data?.mesaCount ?? 0;
   const mesasRequired = enableMesas && mesaCount > 0;
@@ -937,6 +939,9 @@ export function EventDetailPage() {
               compact
               placement="toolbar"
             />
+          ) : null}
+          {enableGoogleSheets && !enableMesas ? (
+            <GoogleSheetsStatusBar eventId={id} compact />
           ) : null}
         </section>
       ) : null}

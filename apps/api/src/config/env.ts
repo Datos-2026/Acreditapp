@@ -59,11 +59,11 @@ const envSchema = z.object({
    */
   GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it"),
   /**
-   * JSON de cuenta de servicio de Google (stringificado) para sincronizar acreditados vecinos a Sheets.
+   * JSON de cuenta de servicio de Google (stringificado) para sincronizar acreditados a Sheets.
    * Compartí el spreadsheet con el client_email de la cuenta.
    */
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  /** ID del libro de Google Sheets único para todos los eventos vecinos (una hoja por evento). */
+  /** ID del libro de Google Sheets compartido (una hoja por evento con toggle activo). */
   GOOGLE_SPREADSHEET_ID: z.string().optional()
 });
 
