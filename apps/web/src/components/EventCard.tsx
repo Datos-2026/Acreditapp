@@ -130,19 +130,6 @@ export function EventCard({ event }: Props) {
         <strong>En base:</strong> {event.totalPeople} &nbsp;|&nbsp; <strong>Acreditados:</strong>{" "}
         {event.accreditedPeople}
       </p>
-      {event.googleSheetUrl ? (
-        <a
-          href={event.googleSheetUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn btn-secondary event-card__action"
-          style={{ marginBottom: "0.5rem" }}
-        >
-          <Icon name="table_chart" />
-          Abrir Google Sheets
-          {event.googleSheetName ? ` (${event.googleSheetName})` : ""}
-        </a>
-      ) : null}
       <Link to={eventHref} className="btn btn-primary event-card__action">
         <Icon name="arrow_forward" />
         {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}

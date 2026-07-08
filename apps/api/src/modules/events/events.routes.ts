@@ -230,20 +230,30 @@ async function assertEventAcceptingAccreditations(eventId: string): Promise<void
   }
 }
 
+function googleSheetsResponseFields(event: {
+  enableGoogleSheets?: boolean | null;
+  googleSheetName?: string | null;
+}) {
+  const enableGoogleSheets = Boolean(event.enableGoogleSheets);
+  const googleSheetName = isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName ?? null;
+  return {
+    googleSheetName,
+    googleSheetUrl:
+      enableGoogleSheets && isGoogleSheetsConfigured() ? buildGoogleSpreadsheetUrl() : null
+  };
+}
+
 function mapEventListItem(
   event: { _count: { eventPeople: number }; eventPeople: Array<{ id: string }> } & Record<string, unknown>
 ) {
-  const enableGoogleSheets = Boolean(event.enableGoogleSheets);
-  const googleSheetName = isUnprovisionedSheetName(event.googleSheetName as string | null | undefined)
-    ? null
-    : (event.googleSheetName as string | null | undefined) ?? null;
   return {
     ...event,
     totalPeople: event._count.eventPeople,
     accreditedPeople: event.eventPeople.length,
-    googleSheetName,
-    googleSheetUrl:
-      enableGoogleSheets && isGoogleSheetsConfigured() ? buildGoogleSpreadsheetUrl() : null
+    ...googleSheetsResponseFields({
+      enableGoogleSheets: event.enableGoogleSheets as boolean | null | undefined,
+      googleSheetName: event.googleSheetName as string | null | undefined
+    })
   };
 }
 
@@ -902,7 +912,8 @@ router.get("/:id", async (req, res, next) => {
     res.json({
       ...event,
       totalPeople: event._count.eventPeople,
-      accreditedPeople: event.eventPeople.length
+      accreditedPeople: event.eventPeople.length,
+      ...googleSheetsResponseFields(event)
     });
   } catch (error) {
     next(error);

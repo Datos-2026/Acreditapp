@@ -37,7 +37,6 @@ import { Icon } from "../../components/Icon";
 import { useAuth } from "../auth/auth-context";
 import { EventAccessConfig } from "./EventAccessConfig";
 import { VecinoMesasPanel } from "./VecinoMesasPanel";
-import { GoogleSheetsStatusBar } from "./GoogleSheetsStatusBar";
 import { EventNotesPanel } from "./EventNotesPanel";
 
 type EventPerson = {
@@ -940,9 +939,6 @@ export function EventDetailPage() {
               placement="toolbar"
             />
           ) : null}
-          {enableGoogleSheets && !enableMesas ? (
-            <GoogleSheetsStatusBar eventId={id} compact />
-          ) : null}
         </section>
       ) : null}
 
@@ -957,6 +953,22 @@ export function EventDetailPage() {
             {label}
           </button>
         ))}
+        {enableGoogleSheets && eventQuery.data?.googleSheetUrl ? (
+          <a
+            className="tab-btn tab-btn--informe"
+            href={eventQuery.data.googleSheetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={
+              eventQuery.data.googleSheetName
+                ? `Hoja: ${eventQuery.data.googleSheetName}`
+                : "Abrir Google Sheets"
+            }
+          >
+            <Icon name="table_chart" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
+            Google Sheets
+          </a>
+        ) : null}
         <Link className="tab-btn tab-btn--informe" to={`/events/${id}/informe`} title="Informe post-evento y PDF">
           <Icon name="description" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
           Informe
