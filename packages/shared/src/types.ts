@@ -24,6 +24,7 @@ export type EventCardDto = {
   meetingMinutes?: string | null;
   mesaCount?: number | null;
   googleSheetName?: string | null;
+  googleSheetUrl?: string | null;
   totalPeople: number;
   accreditedPeople: number;
 };
@@ -32,6 +33,7 @@ export type GoogleSheetsStatsDto = {
   sheetsConfigured: boolean;
   googleSheetsEnabled: boolean;
   googleSheetName?: string | null;
+  googleSheetUrl?: string | null;
   lastSheetError?: string | null;
 };
 

@@ -40,6 +40,7 @@ import {
 } from "./mesa-assignment";
 import {
   appendVecinoAccreditationToSheet,
+  buildGoogleSpreadsheetUrl,
   createEventGoogleSheet,
   ensureEventGoogleSheet,
   formatGoogleSheetsError,
@@ -229,6 +230,23 @@ async function assertEventAcceptingAccreditations(eventId: string): Promise<void
   }
 }
 
+function mapEventListItem(
+  event: { _count: { eventPeople: number }; eventPeople: Array<{ id: string }> } & Record<string, unknown>
+) {
+  const enableGoogleSheets = Boolean(event.enableGoogleSheets);
+  const googleSheetName = isUnprovisionedSheetName(event.googleSheetName as string | null | undefined)
+    ? null
+    : (event.googleSheetName as string | null | undefined) ?? null;
+  return {
+    ...event,
+    totalPeople: event._count.eventPeople,
+    accreditedPeople: event.eventPeople.length,
+    googleSheetName,
+    googleSheetUrl:
+      enableGoogleSheets && isGoogleSheetsConfigured() ? buildGoogleSpreadsheetUrl() : null
+  };
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const where = eventsListWhere(req.auth!.id, req.auth!.role);
@@ -245,13 +263,7 @@ router.get("/", async (req, res, next) => {
       },
       orderBy: { startAt: "desc" }
     });
-    res.json(
-      events.map((event: { _count: { eventPeople: number }; eventPeople: Array<{ id: string }> } & Record<string, unknown>) => ({
-        ...event,
-        totalPeople: event._count.eventPeople,
-        accreditedPeople: event.eventPeople.length
-      }))
-    );
+    res.json(events.map(mapEventListItem));
   } catch (error) {
     next(error);
   }
@@ -615,6 +627,7 @@ router.get("/:id/sheets/stats", async (req, res, next) => {
       sheetsConfigured: isGoogleSheetsConfigured(),
       googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+      googleSheetUrl: googleSheetsActive(event) ? buildGoogleSpreadsheetUrl() : null,
       lastSheetError: getVecinoSheetError(req.params.id)
     });
   } catch (error) {

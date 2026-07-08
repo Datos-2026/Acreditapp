@@ -54,6 +54,21 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
       {stats?.googleSheetName ? (
         <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
           Hoja: <strong>{stats.googleSheetName}</strong>
+          {stats.googleSheetUrl ? (
+            <>
+              {" "}
+              ·{" "}
+              <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
+                Abrir Sheets
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : stats?.googleSheetUrl ? (
+        <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
+          <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
+            Abrir Google Sheets
+          </a>
         </p>
       ) : null}
       {sheetError ? <p className="message-error" style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>{sheetError}</p> : null}

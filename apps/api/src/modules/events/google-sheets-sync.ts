@@ -121,17 +121,17 @@ function getSheetsClient(): sheets_v4.Sheets | null {
 
 
 export function isGoogleSheetsConfigured(): boolean {
-
   return Boolean(env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS && getSpreadsheetId());
-
 }
 
-
+export function buildGoogleSpreadsheetUrl(): string | null {
+  const spreadsheetId = getSpreadsheetId();
+  if (!spreadsheetId) return null;
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+}
 
 export function formatGoogleSheetsError(err: unknown): string {
-
   const apiErr = (err as { response?: { data?: { error?: { message?: string; status?: string } } } })
-
     ?.response?.data?.error;
 
   const raw = err instanceof Error ? err.message : String(err);
