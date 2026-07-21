@@ -18,6 +18,7 @@ import { importDetailRoutes } from "./modules/imports/import-detail.routes";
 import { directoryRoutes } from "./modules/directory/directory.routes";
 import { vecinoDirectoryRoutes } from "./modules/directory/vecino-directory.routes";
 import { adminRoutes } from "./modules/admin/admin.routes";
+import { externalRoutes } from "./modules/external/external.routes";
 
 export const app = express();
 
@@ -81,6 +82,7 @@ app.use("/api/v1/imports", importDetailRoutes);
 app.use("/api/v1/directory", directoryRoutes);
 app.use("/api/v1/vecino-directory", vecinoDirectoryRoutes);
 app.use("/api/v1/admin", adminRoutes);
+app.use("/api/v1/external", externalRoutes);
 
 /** Built to `dist/src/*.js` → three levels up to the `apps/` workspace folder. */
 const __dirnameApp = __dirname;

@@ -64,7 +64,12 @@ const envSchema = z.object({
    */
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** ID del libro de Google Sheets compartido (una hoja por evento con toggle activo). */
-  GOOGLE_SPREADSHEET_ID: z.string().optional()
+  GOOGLE_SPREADSHEET_ID: z.string().optional(),
+  /**
+   * API key para crear eventos desde otro sistema (`POST /api/v1/external/events`).
+   * Header: `X-Api-Key` o `Authorization: Bearer <key>`.
+   */
+  EXTERNAL_EVENTS_API_KEY: z.string().min(16).optional()
 });
 
 const raw = envSchema.parse(process.env);
