@@ -7,9 +7,17 @@ type Props = {
   onSubmit: (values: ManualPersonFormValues) => void;
   initialCuilRaw?: string;
   submitLabel?: string;
+  submitDisabled?: boolean;
+  submitDisabledHint?: string;
 };
 
-export function ManualPersonForm({ onSubmit, initialCuilRaw = "", submitLabel = "Crear persona manual" }: Props) {
+export function ManualPersonForm({
+  onSubmit,
+  initialCuilRaw = "",
+  submitLabel = "Crear persona manual",
+  submitDisabled = false,
+  submitDisabledHint
+}: Props) {
   const { register, handleSubmit, formState, reset } = useForm<ManualPersonFormValues>({
     resolver: zodResolver(manualPersonFormSchema),
     defaultValues: {
@@ -40,9 +48,12 @@ export function ManualPersonForm({ onSubmit, initialCuilRaw = "", submitLabel = 
       <input className="input input--boxed" placeholder="Email (opcional)" {...register("email")} />
       <input className="input input--boxed" placeholder="Teléfono (opcional)" {...register("phone")} />
       <textarea className="input" placeholder="Observaciones (opcional)" {...register("notes")} />
-      <button className="btn btn-primary" type="submit">
+      <button className="btn btn-primary" type="submit" disabled={submitDisabled}>
         {submitLabel}
       </button>
+      {submitDisabled && submitDisabledHint ? (
+        <p className="message-warning manual-person-form__submit-hint">{submitDisabledHint}</p>
+      ) : null}
       {formState.errors.cuilRaw ? <p className="message-error">{formState.errors.cuilRaw.message}</p> : null}
       {formState.errors.firstName ? <p className="message-error">{formState.errors.firstName.message}</p> : null}
       {formState.errors.lastName ? <p className="message-error">{formState.errors.lastName.message}</p> : null}

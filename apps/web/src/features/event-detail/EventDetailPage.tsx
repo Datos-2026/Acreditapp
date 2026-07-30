@@ -78,7 +78,8 @@ function MesaSelect({
   onChange,
   id,
   mesaStats,
-  showCountsSummary = false
+  showCountsSummary = false,
+  prominent = false
 }: {
   mesaCount: number;
   value: string;
@@ -86,6 +87,7 @@ function MesaSelect({
   id: string;
   mesaStats?: MesaStatRowDto[];
   showCountsSummary?: boolean;
+  prominent?: boolean;
 }) {
   const countByMesa = useMemo(() => {
     const map = new Map<number, number>();
@@ -102,24 +104,48 @@ function MesaSelect({
   };
 
   return (
-    <div style={{ marginTop: "0.75rem" }}>
-      <label className="label-md field-label" htmlFor={id}>
-        Mesa
+    <div className={prominent ? "mesa-select mesa-select--prominent" : "mesa-select"}>
+      <label className="label-md field-label mesa-select__label" htmlFor={id}>
+        {prominent ? (
+          <>
+            <span className="mesa-select__icon" aria-hidden="true">
+              <Icon name="table_restaurant" />
+            </span>
+            <span>
+              <strong>Elegí una mesa</strong>
+              <small>Obligatorio para completar la acreditación</small>
+            </span>
+          </>
+        ) : (
+          "Mesa"
+        )}
       </label>
       <select
         id={id}
-        className="input input--boxed"
+        className={`input input--boxed mesa-select__control${value ? " mesa-select__control--selected" : ""}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={{ width: "100%", maxWidth: 300, marginTop: "0.35rem" }}
+        aria-required={prominent}
       >
-        <option value="">Elegir mesa…</option>
+        <option value="">— Seleccioná una mesa —</option>
         {Array.from({ length: mesaCount }, (_, i) => i + 1).map((n) => (
           <option key={n} value={String(n)}>
             {mesaStats ? mesaLabel(n) : `Mesa ${n}`}
           </option>
         ))}
       </select>
+      {prominent ? (
+        value ? (
+          <p className="mesa-select__status mesa-select__status--ready">
+            <Icon name="check_circle" />
+            Mesa {value} seleccionada
+          </p>
+        ) : (
+          <p className="mesa-select__status mesa-select__status--required">
+            Seleccioná la mesa antes de registrar a la persona.
+          </p>
+        )
+      ) : null}
       {showCountsSummary && mesaStats && mesaStats.length > 0 ? (
         <div className="mesa-select-summary" aria-label="Personas por mesa">
           {mesaStats.map((row) => (
@@ -1059,6 +1085,7 @@ export function EventDetailPage() {
                       onClick={() => {
                         setLastSearchedCuil(debouncedSearch.replace(/\D/g, ""));
                         setUiNotice(null);
+                        setAccreditMesa("");
                         setShowFueraDeBaseModal(true);
                       }}
                     >
@@ -1274,11 +1301,25 @@ export function EventDetailPage() {
                     value={accreditMesa}
                     onChange={setAccreditMesa}
                     mesaStats={mesaStatsRows}
+                    showCountsSummary
+                    prominent
                   />
                 ) : null}
                 <ManualPersonForm
                   initialCuilRaw={lastSearchedCuil}
-                  submitLabel={manualAndAccreditMutation.isPending ? "Procesando..." : "Registrar y acreditar"}
+                  submitLabel={
+                    manualAndAccreditMutation.isPending
+                      ? "Procesando..."
+                      : mesasRequired && !accreditMesa
+                        ? "Elegí una mesa para continuar"
+                        : "Registrar y acreditar"
+                  }
+                  submitDisabled={manualAndAccreditMutation.isPending || (mesasRequired && !accreditMesa)}
+                  submitDisabledHint={
+                    mesasRequired && !accreditMesa
+                      ? "La mesa es obligatoria para registrar y acreditar fuera de base."
+                      : undefined
+                  }
                   onSubmit={(values) =>
                     manualAndAccreditMutation.mutate({
                       values: values as unknown as Record<string, unknown>,
@@ -1295,6 +1336,7 @@ export function EventDetailPage() {
                     className="btn btn-secondary"
                     onClick={() => {
                       setShowFueraDeBaseModal(false);
+                      setAccreditMesa("");
                       setUiNotice(null);
                     }}
                   >
