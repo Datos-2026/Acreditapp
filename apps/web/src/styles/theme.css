@@ -2685,6 +2685,107 @@ a.tab-btn--informe {
   color: var(--primary-container);
 }
 
+.mesa-select {
+  margin-top: 0.75rem;
+}
+
+.mesa-select__control {
+  width: 100%;
+  max-width: 300px;
+  margin-top: 0.35rem;
+}
+
+.mesa-select--prominent {
+  margin: 1rem 0 1.25rem;
+  padding: 1rem;
+  border: 2px solid var(--secondary-container);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--secondary-container) 12%, white);
+  box-shadow: 0 6px 20px rgba(36, 26, 0, 0.08);
+}
+
+.mesa-select--prominent .mesa-select__label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.mesa-select__label strong {
+  display: block;
+  color: var(--on-secondary-fixed);
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mesa-select__label small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--on-surface-variant);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.mesa-select__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 2.6rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: var(--radius-full);
+  background: var(--secondary-container);
+  color: var(--on-secondary-fixed);
+}
+
+.mesa-select--prominent .mesa-select__control {
+  max-width: none;
+  min-height: 3.2rem;
+  margin-top: 0.85rem;
+  border: 2px solid var(--secondary-container);
+  background: white;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.mesa-select--prominent .mesa-select__control:focus {
+  outline: 3px solid color-mix(in srgb, var(--secondary-container) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.mesa-select__control--selected {
+  border-color: #168352 !important;
+}
+
+.mesa-select__status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.mesa-select__status .material-symbols-outlined {
+  font-size: 1.1rem;
+}
+
+.mesa-select__status--required {
+  color: #8a5800;
+}
+
+.mesa-select__status--ready {
+  color: #11663f;
+}
+
+.manual-person-form__submit-hint {
+  margin: -0.2rem 0 0;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .mesa-panel-compact {
   margin-top: 1.25rem;
   padding-top: 1rem;
