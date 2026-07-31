@@ -248,6 +248,7 @@ export function EventDetailPage() {
   const tab = SLUG_TO_TAB[slug] ?? "Acreditar";
   const [selected, setSelected] = useState<EventPerson | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showDirectoryFueraConfirm, setShowDirectoryFueraConfirm] = useState(false);
   const [accreditMesa, setAccreditMesa] = useState("");
   const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
@@ -614,6 +615,7 @@ export function EventDetailPage() {
     },
     onSuccess: () => {
       setSelected(null);
+      setShowDirectoryFueraConfirm(false);
       setAccreditMesa("");
       setLastSearchedCuil("");
       setLiveSearchInput("");
@@ -653,6 +655,7 @@ export function EventDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
 
@@ -912,11 +915,8 @@ export function EventDetailPage() {
                     !manualFromDirectoryMutation.isPending
                   ) {
                     e.preventDefault();
-                    if (mesasRequired && !accreditMesa) return;
-                    manualFromDirectoryMutation.mutate({
-                      ...directoryManualPayload,
-                      mesa: mesasRequired ? Number(accreditMesa) : undefined
-                    });
+                    setAccreditMesa("");
+                    setShowDirectoryFueraConfirm(true);
                     return;
                   }
 
@@ -1123,18 +1123,11 @@ export function EventDetailPage() {
                       <button
                         className="btn btn-danger"
                         type="button"
-                        disabled={
-                          manualFromDirectoryMutation.isPending ||
-                          !directoryManualPayload ||
-                          (mesasRequired && !accreditMesa)
-                        }
-                        onClick={() =>
-                          directoryManualPayload &&
-                          manualFromDirectoryMutation.mutate({
-                            ...directoryManualPayload,
-                            mesa: mesasRequired ? Number(accreditMesa) : undefined
-                          })
-                        }
+                        disabled={manualFromDirectoryMutation.isPending || !directoryManualPayload}
+                        onClick={() => {
+                          setAccreditMesa("");
+                          setShowDirectoryFueraConfirm(true);
+                        }}
                       >
                         <Icon name="verified" />
                         {manualFromDirectoryMutation.isPending ? "Procesando…" : "Acreditar fuera de base"}
@@ -1142,15 +1135,6 @@ export function EventDetailPage() {
                     )}
                   </RoleGuard>
                 </div>
-                {mesasRequired ? (
-                  <MesaSelect
-                    id="directory-accredit-mesa"
-                    mesaCount={mesaCount}
-                    value={accreditMesa}
-                    onChange={setAccreditMesa}
-                    mesaStats={mesaStatsRows}
-                  />
-                ) : null}
                 <div className="accred-detail__rows">
                   {directoryMatch.directoryKind === "vecinos" ? (
                     <>
@@ -1284,6 +1268,53 @@ export function EventDetailPage() {
                 onChange={setAccreditMesa}
                 mesaStats={mesaStatsRows}
                 showCountsSummary
+                prominent
+              />
+            ) : null}
+          </ConfirmDialog>
+          <ConfirmDialog
+            open={showDirectoryFueraConfirm}
+            title="Acreditar fuera de base"
+            message={
+              directoryMatch
+                ? `¿Seguro que querés acreditar fuera de base a ${directoryMatch.directoryPerson.lastName}, ${directoryMatch.directoryPerson.firstName}?`
+                : "Esta acción registra y acredita a la persona fuera de base."
+            }
+            confirmLabel={
+              manualFromDirectoryMutation.isPending
+                ? "Procesando…"
+                : mesasRequired && !accreditMesa
+                  ? "Elegí una mesa para continuar"
+                  : "Acreditar fuera de base"
+            }
+            confirmDisabled={
+              manualFromDirectoryMutation.isPending ||
+              !directoryManualPayload ||
+              (mesasRequired &&
+                (!accreditMesa || Number(accreditMesa) < 1 || Number(accreditMesa) > mesaCount))
+            }
+            onCancel={() => {
+              setShowDirectoryFueraConfirm(false);
+              setAccreditMesa("");
+            }}
+            onConfirm={() => {
+              if (manualFromDirectoryMutation.isPending || !directoryManualPayload) return;
+              if (mesasRequired && !accreditMesa) return;
+              manualFromDirectoryMutation.mutate({
+                ...directoryManualPayload,
+                mesa: mesasRequired ? Number(accreditMesa) : undefined
+              });
+            }}
+          >
+            {mesasRequired ? (
+              <MesaSelect
+                id="directory-accredit-mesa"
+                mesaCount={mesaCount}
+                value={accreditMesa}
+                onChange={setAccreditMesa}
+                mesaStats={mesaStatsRows}
+                showCountsSummary
+                prominent
               />
             ) : null}
           </ConfirmDialog>
