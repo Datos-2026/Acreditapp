@@ -13,6 +13,7 @@ describe("event-features-logic", () => {
     expect(normalizeEventFeatures({ enableMesas: false, enableNotes: true })).toEqual({
       enableMesas: false,
       enableNotes: true,
+      enableReferentes: false,
       mesaCount: null
     });
   });

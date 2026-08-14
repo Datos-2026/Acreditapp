@@ -285,10 +285,38 @@ export function buildImportExtraData(
   return out;
 }
 
+/** Mergea extraData de un reimport: no pisa mesa ni claves existentes vacías. */
+export function mergeImportExtraData(
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown>
+): Record<string, unknown> {
+  const prev = existing && typeof existing === "object" ? { ...existing } : {};
+  const next = { ...prev };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value == null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    next[key] = value;
+  }
+  if (prev.mesa != null && incoming.mesa == null) {
+    next.mesa = prev.mesa;
+  }
+  return next;
+}
+
 /** @deprecated usar buildImportExtraData */
 export function buildVecinoExtraData(
   canonical: Record<string, unknown>,
   extraData: Record<string, unknown>
 ): Record<string, unknown> {
   return buildImportExtraData(canonical, extraData, ["presente", "direccion"]);
+}
+
+export function extractReferenteRaw(extraData: Record<string, unknown>): unknown {
+  for (const [header, value] of Object.entries(extraData)) {
+    const normalized = normalizeImportSheetHeader(header);
+    if (normalized === "referente" || normalized.startsWith("referente")) {
+      return value;
+    }
+  }
+  return null;
 }

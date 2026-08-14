@@ -172,3 +172,12 @@ describe("validateVecinoImportRow", () => {
     );
   });
 });
+
+describe("mergeImportExtraData", () => {
+  it("conserva mesa previa si el excel no trae mesa", async () => {
+    const { mergeImportExtraData } = await import("./import-logic");
+    expect(
+      mergeImportExtraData({ mesa: 3, Escuela: "A" }, { Escuela: "B", Referente: "X | a@b.c | 111" })
+    ).toEqual({ mesa: 3, Escuela: "B", Referente: "X | a@b.c | 111" });
+  });
+});

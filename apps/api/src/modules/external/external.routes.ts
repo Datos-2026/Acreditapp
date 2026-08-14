@@ -31,7 +31,9 @@ const createExternalEventSchema = z
     /** Habilitar notas operativas post-acreditación. */
     enableNotes: z.boolean().optional().default(false),
     /** Enviar acreditados a Google Sheets. */
-    enableGoogleSheets: z.boolean().optional().default(false)
+    enableGoogleSheets: z.boolean().optional().default(false),
+    /** Agrupar y acreditar por referente. */
+    enableReferentes: z.boolean().optional().default(false)
   })
   .superRefine((data, ctx) => {
     if (data.enableMesas && (data.mesaCount == null || data.mesaCount < 1)) {
@@ -103,6 +105,7 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
     const enableMesas = Boolean(req.body.enableMesas);
     const enableNotes = Boolean(req.body.enableNotes);
     const enableGoogleSheets = Boolean(req.body.enableGoogleSheets);
+    const enableReferentes = Boolean(req.body.enableReferentes);
     const mesaCount =
       enableMesas && req.body.mesaCount != null ? Number(req.body.mesaCount) : null;
 
@@ -119,6 +122,7 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
         enableMesas,
         enableNotes,
         enableGoogleSheets,
+        enableReferentes,
         mesaCount
       }
     });
@@ -135,6 +139,7 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
         enableMesas,
         enableNotes,
         enableGoogleSheets,
+        enableReferentes,
         mesaCount
       }
     });
@@ -154,6 +159,7 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
       enableMesas: event.enableMesas,
       enableNotes: event.enableNotes,
       enableGoogleSheets: event.enableGoogleSheets,
+      enableReferentes: event.enableReferentes,
       mesaCount: event.mesaCount,
       createdAt: event.createdAt.toISOString()
     });

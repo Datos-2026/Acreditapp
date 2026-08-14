@@ -3,28 +3,31 @@ import { AppError } from "../../middlewares/error-handler";
 export type EventFeaturesInput = {
   enableMesas?: boolean;
   enableNotes?: boolean;
+  enableReferentes?: boolean;
   mesaCount?: number | null;
 };
 
 export type NormalizedEventFeatures = {
   enableMesas: boolean;
   enableNotes: boolean;
+  enableReferentes: boolean;
   mesaCount: number | null;
 };
 
 export function normalizeEventFeatures(input: EventFeaturesInput): NormalizedEventFeatures {
   const enableMesas = Boolean(input.enableMesas);
   const enableNotes = Boolean(input.enableNotes);
+  const enableReferentes = Boolean(input.enableReferentes);
 
   if (enableMesas) {
     const count = input.mesaCount;
     if (count == null || count < 1 || count > 99) {
       throw new AppError("Si activás mesas, indicá la cantidad entre 1 y 99", 400);
     }
-    return { enableMesas: true, enableNotes, mesaCount: count };
+    return { enableMesas: true, enableNotes, enableReferentes, mesaCount: count };
   }
 
-  return { enableMesas: false, enableNotes, mesaCount: null };
+  return { enableMesas: false, enableNotes, enableReferentes, mesaCount: null };
 }
 
 export function mesasActive(event: { enableMesas: boolean; mesaCount: number | null }): boolean {
@@ -33,4 +36,8 @@ export function mesasActive(event: { enableMesas: boolean; mesaCount: number | n
 
 export function googleSheetsActive(event: { enableGoogleSheets: boolean }): boolean {
   return Boolean(event.enableGoogleSheets);
+}
+
+export function referentesActive(event: { enableReferentes?: boolean | null }): boolean {
+  return Boolean(event.enableReferentes);
 }

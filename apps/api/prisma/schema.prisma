@@ -75,6 +75,8 @@ model Event {
   enableNotes      Boolean             @default(false)
   /** Volca acreditados en tiempo real a Google Sheets (una hoja por evento). */
   enableGoogleSheets Boolean           @default(false)
+  /** Habilita búsqueda por referente y acreditación del grupo a cargo. */
+  enableReferentes   Boolean           @default(false)
   /** Acta / minuta general del encuentro (pestaña Notas generales). */
   meetingMinutes   String?             @db.Text
   /** Cantidad de mesas cuando enableMesas está activo. */
@@ -88,6 +90,7 @@ model Event {
   eventUsers       EventUser[]
   eventPeople      EventPerson[]
   importBatches    ImportBatch[]
+  referentes       EventReferente[]
   reportAiCache    EventReportAiCache?
 }
 
@@ -148,6 +151,9 @@ model EventPerson {
   /** Nota operativa post-acreditación (pestaña Notas). */
   eventNotes          String?
   extraData           Json?
+  /** True si esta fila es el propio referente (no una persona a cargo). */
+  isReferente         Boolean                @default(false)
+  referenteId         String?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
   event               Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
@@ -155,9 +161,30 @@ model EventPerson {
   importBatch         ImportBatch?           @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
   accreditedByUser    User?                  @relation("AccreditedBy", fields: [accreditedByUserId], references: [id], onDelete: SetNull)
   overrides           AccreditationOverride[]
+  referente           EventReferente?        @relation("ReferenteGroup", fields: [referenteId], references: [id], onDelete: SetNull)
+  asReferente         EventReferente?        @relation("ReferenteSelf")
 
   @@unique([eventId, personId])
   @@index([eventId, status])
+  @@index([referenteId])
+}
+
+model EventReferente {
+  id               String        @id @default(cuid())
+  eventId          String
+  name             String
+  email            String
+  emailNormalized  String
+  phone            String?
+  eventPersonId    String?       @unique
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  event            Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventPerson      EventPerson?  @relation("ReferenteSelf", fields: [eventPersonId], references: [id], onDelete: SetNull)
+  people           EventPerson[] @relation("ReferenteGroup")
+
+  @@unique([eventId, emailNormalized])
+  @@index([eventId, name])
 }
 
 model AccreditationOverride {

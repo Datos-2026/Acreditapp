@@ -25,7 +25,7 @@ import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
-import type { DirectoryPersonDto, DirectorySearchResult, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
+import type { DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
 import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
@@ -258,6 +258,28 @@ function FueraDeBaseSuccessCard({
   );
 }
 
+function ReferenteAccreditSuccessCard({
+  name,
+  accreditedCount
+}: {
+  name: string;
+  accreditedCount: number;
+}) {
+  return (
+    <div className="fuera-base-success-card" role="status">
+      <p className="fuera-base-success-card__kicker">
+        <Icon name="verified" filled />
+        Listo
+      </p>
+      <h4 className="fuera-base-success-card__title">Grupo acreditado</h4>
+      <p className="fuera-base-success-card__name">{name}</p>
+      <p className="fuera-base-success-card__hint">
+        Se acreditaron {accreditedCount} persona{accreditedCount === 1 ? "" : "s"} (referente y a cargo).
+      </p>
+    </div>
+  );
+}
+
 export function EventDetailPage() {
   const { user } = useAuth();
   const { setLastEventId } = useLastEvent();
@@ -277,6 +299,10 @@ export function EventDetailPage() {
     lastName: string;
     document: string;
   } | null>(null);
+  const [selectedReferenteId, setSelectedReferenteId] = useState<string | null>(null);
+  const [referenteCheckedIds, setReferenteCheckedIds] = useState<Set<string>>(new Set());
+  const [showReferenteConfirm, setShowReferenteConfirm] = useState(false);
+  const [referenteSuccess, setReferenteSuccess] = useState<{ name: string; accreditedCount: number } | null>(null);
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
   const [uiNotice, setUiNotice] = useState<string | null>(null);
   const [liveSearchInput, setLiveSearchInput] = useState("");
@@ -344,6 +370,7 @@ export function EventDetailPage() {
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const enableGoogleSheets = Boolean(eventQuery.data?.enableGoogleSheets);
   const enableNotes = Boolean(eventQuery.data?.enableNotes);
+  const enableReferentes = Boolean(eventQuery.data?.enableReferentes);
   const mesaCount = eventQuery.data?.mesaCount ?? 0;
   const mesasRequired = enableMesas && mesaCount > 0;
 
@@ -502,9 +529,13 @@ export function EventDetailPage() {
   };
 
   const livePeopleQuery = useQuery({
-    queryKey: ["people", id, "live", debouncedSearch],
+    queryKey: ["people", id, "live", debouncedSearch, enableReferentes],
     queryFn: async () =>
-      (await api.get(`/events/${id}/people?q=${encodeURIComponent(debouncedSearch)}&page=1&pageSize=5000`)).data as {
+      (await api.get(
+        `/events/${id}/people?q=${encodeURIComponent(debouncedSearch)}&page=1&pageSize=5000${
+          enableReferentes ? "&excludeReferentes=true" : ""
+        }`
+      )).data as {
         total: number;
         rows: LiveSearchRow[];
       },
@@ -512,6 +543,30 @@ export function EventDetailPage() {
   });
 
   const liveRows = useMemo(() => (livePeopleQuery.data?.rows ?? []) as LiveSearchRow[], [livePeopleQuery.data?.rows]);
+
+  const referentesQuery = useQuery({
+    queryKey: ["referentes", id, debouncedSearch],
+    queryFn: async () =>
+      (
+        await api.get<{ total: number; rows: EventReferenteListItemDto[] }>(
+          `/events/${id}/referentes?q=${encodeURIComponent(debouncedSearch)}`
+        )
+      ).data,
+    enabled: tab === "Acreditar" && enableReferentes && debouncedSearch.length >= 2
+  });
+  const referenteRows = referentesQuery.data?.rows ?? [];
+
+  const referenteGroupQuery = useQuery({
+    queryKey: ["referente", id, selectedReferenteId],
+    queryFn: async () =>
+      (await api.get<EventReferenteGroupDto>(`/events/${id}/referentes/${selectedReferenteId}`)).data,
+    enabled: tab === "Acreditar" && enableReferentes && Boolean(selectedReferenteId)
+  });
+
+  useEffect(() => {
+    const people = referenteGroupQuery.data?.people ?? [];
+    setReferenteCheckedIds(new Set(people.filter((p) => p.status === "pending").map((p) => p.id)));
+  }, [referenteGroupQuery.data]);
   const normalizedDigits = debouncedSearch.replace(/\D/g, "");
   const isExactDocumentSearch =
     normalizedDigits.length === 11 || (normalizedDigits.length >= 6 && normalizedDigits.length <= 8);
@@ -578,12 +633,24 @@ export function EventDetailPage() {
     if (!stillVisible) setSelected(null);
   }, [debouncedSearch, directoryMatch, displayRows, selected]);
 
+  useEffect(() => {
+    if (!selectedReferenteId) return;
+    if (debouncedSearch.length < 2) {
+      setSelectedReferenteId(null);
+      return;
+    }
+    const stillVisible = referenteRows.some((row) => row.id === selectedReferenteId);
+    if (!stillVisible) setSelectedReferenteId(null);
+  }, [debouncedSearch, referenteRows, selectedReferenteId]);
+
   /** Limpia por completo la búsqueda y el detalle de la pestaña Acreditar. */
   const clearLiveSearch = () => {
     setLiveSearchInput("");
     setDebouncedSearch("");
     setLastSearchedCuil("");
     setSelected(null);
+    setSelectedReferenteId(null);
+    setReferenteSuccess(null);
     setSearchedOnce(false);
     setUiNotice(null);
     setAccreditMesa("");
@@ -625,6 +692,30 @@ export function EventDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       queryClient.invalidateQueries({ queryKey: ["stats", id] });
       queryClient.invalidateQueries({ queryKey: ["mesas", id] });
+    }
+  });
+  const accreditBulkMutation = useMutation({
+    mutationFn: async (payload: { eventPersonIds: string[]; mesa?: number }) =>
+      (
+        await api.post<{ accredited: number; skipped: number }>(`/events/${id}/people/accredit-bulk`, payload)
+      ).data,
+    onSuccess: (data) => {
+      const group = referenteGroupQuery.data;
+      setReferenteSuccess({
+        name: group?.name ?? "Referente",
+        accreditedCount: data.accredited
+      });
+      setShowReferenteConfirm(false);
+      setAccreditMesa("");
+      setSelected(null);
+      setUiNotice(null);
+      void queryClient.invalidateQueries({ queryKey: ["people", id] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
+      void queryClient.invalidateQueries({ queryKey: ["referentes", id] });
+      void queryClient.invalidateQueries({ queryKey: ["referente", id] });
+      void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
   const manualFromDirectoryMutation = useMutation({
@@ -934,11 +1025,20 @@ export function EventDetailPage() {
                 autoFocus
                 autoComplete="off"
                 className="input cuil-mega search-input"
-                placeholder={isVecinosEvent ? "DNI / Apellido" : "CUIL / DNI / Apellido"}
+                placeholder={
+                  enableReferentes
+                    ? isVecinosEvent
+                      ? "DNI / Apellido / referente / mail"
+                      : "CUIL / DNI / Apellido / referente / mail"
+                    : isVecinosEvent
+                      ? "DNI / Apellido"
+                      : "CUIL / DNI / Apellido"
+                }
                 value={liveSearchInput}
                 onChange={(e) => {
                   setUiNotice(null);
                   setFueraDeBaseSuccess(null);
+                  setReferenteSuccess(null);
                   setSearchedOnce(false);
                   setLiveSearchInput(e.target.value);
                 }}
@@ -967,12 +1067,21 @@ export function EventDetailPage() {
                     e.preventDefault();
                     const only = displayRows[0] as EventPerson;
                     setSelected(only);
+                    setSelectedReferenteId(null);
                     setSearchedOnce(true);
                     setLastSearchedCuil(only.person.cuilNormalized);
                     if (only.status === "pending" && !accreditMutation.isPending) {
-                      // Mismo flujo que el click en el botón rojo: confirmación + acreditación.
                       setShowConfirm(true);
                     }
+                    return;
+                  }
+
+                  if (enableReferentes && referenteRows.length === 1 && displayRows.length === 0) {
+                    e.preventDefault();
+                    setSelected(null);
+                    setSelectedReferenteId(referenteRows[0].id);
+                    setReferenteSuccess(null);
+                    setSearchedOnce(true);
                   }
                 }}
               />
@@ -996,7 +1105,9 @@ export function EventDetailPage() {
               </div>
             </div>
             <p className="search-cuil-form__hint search-help">
-              Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo).
+              {enableReferentes
+                ? "Buscá un referente (nombre o mail) o una persona suelta. Enter acredita si hay un solo resultado."
+                : "Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo)."}
             </p>
           </section>
           {enableMesas ? (
@@ -1049,15 +1160,17 @@ export function EventDetailPage() {
           <div className="card panel results-panel accred-console__left">
             {debouncedSearch.length < 2 ? (
               <p style={{ color: "var(--on-surface-variant)", fontWeight: 600, margin: 0 }}>
-                Escribí al menos 2 caracteres para buscar personas en la base.
+                {enableReferentes
+                  ? "Escribí al menos 2 caracteres para buscar un referente o una persona."
+                  : "Escribí al menos 2 caracteres para buscar personas en la base."}
               </p>
-            ) : livePeopleQuery.isLoading || exactCuilQuery.isLoading ? (
+            ) : livePeopleQuery.isLoading || exactCuilQuery.isLoading || (enableReferentes && referentesQuery.isLoading) ? (
               <p className="page-state" style={{ padding: "1.25rem 0" }}>
                 Buscando...
               </p>
             ) : livePeopleQuery.isError || exactCuilQuery.isError ? (
               <p className="message-error">No se pudo consultar la base en este momento. Reintentá.</p>
-            ) : directoryMatch && displayRows.length === 0 ? (
+            ) : directoryMatch && displayRows.length === 0 && referenteRows.length === 0 ? (
               <div>
                 <p className="label-md field-label">
                   Resultados (directorio {isVecinosEvent ? "vecinos" : "GCBA"})
@@ -1069,7 +1182,34 @@ export function EventDetailPage() {
               </div>
             ) : (
               <>
-                <p className="label-md field-label">Resultados ({displayRows.length})</p>
+                {enableReferentes && referenteRows.length > 0 ? (
+                  <>
+                    <p className="label-md field-label">Referentes ({referenteRows.length})</p>
+                    <div className="live-results-grid live-results-grid--dark" style={{ marginBottom: "1rem" }}>
+                      {referenteRows.map((row) => (
+                        <button
+                          key={row.id}
+                          type="button"
+                          className={`live-result-card${selectedReferenteId === row.id ? " live-result-card--active" : ""}`}
+                          onClick={() => {
+                            setSearchedOnce(true);
+                            setSelected(null);
+                            setReferenteSuccess(null);
+                            setSelectedReferenteId(row.id);
+                          }}
+                        >
+                          <p className="live-result-card__name">{row.name}</p>
+                          <p className="live-result-card__meta">{row.email || "Sin mail"}</p>
+                          <p className="live-result-card__meta">
+                            {row.peopleCount} a cargo · {row.pendingCount} pendientes
+                          </p>
+                          <span className="status-pill status-pill--draft">Referente</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                <p className="label-md field-label">Personas ({displayRows.length})</p>
                 <div className="live-results-grid live-results-grid--dark">
                   {displayRows.map((row) => (
                     <button
@@ -1078,6 +1218,7 @@ export function EventDetailPage() {
                       className={`live-result-card${selected?.id === row.id ? " live-result-card--active" : ""}`}
                       onClick={() => {
                         setSearchedOnce(true);
+                        setSelectedReferenteId(null);
                         setSelected(row as EventPerson);
                         setLastSearchedCuil(row.person.cuilNormalized);
                       }}
@@ -1108,10 +1249,12 @@ export function EventDetailPage() {
             )}
             {!livePeopleQuery.isLoading &&
             !exactCuilQuery.isLoading &&
+            !(enableReferentes && referentesQuery.isLoading) &&
             !livePeopleQuery.isError &&
             !exactCuilQuery.isError &&
             debouncedSearch.length >= 2 &&
             displayRows.length === 0 &&
+            referenteRows.length === 0 &&
             !directoryMatch ? (
               <div style={{ marginTop: "1rem" }}>
                 <p className="message-warning">No hay coincidencias en la base para esta búsqueda.</p>
@@ -1141,7 +1284,101 @@ export function EventDetailPage() {
             ) : null}
           </div>
           <div className="card panel detail-panel accred-console__right">
-            {directoryMatch && !selected ? (
+            {referenteSuccess && selectedReferenteId ? (
+              <ReferenteAccreditSuccessCard
+                name={referenteSuccess.name}
+                accreditedCount={referenteSuccess.accreditedCount}
+              />
+            ) : selectedReferenteId && enableReferentes ? (
+              referenteGroupQuery.isLoading ? (
+                <p className="page-state">Cargando grupo…</p>
+              ) : referenteGroupQuery.isError || !referenteGroupQuery.data ? (
+                <p className="message-error">No se pudo cargar el grupo del referente.</p>
+              ) : (
+                <div className="accred-detail referente-group-card">
+                  <p className="label-md field-label">Referente</p>
+                  <h3 className="accred-detail__name" style={{ marginTop: 0 }}>
+                    {referenteGroupQuery.data.name}
+                  </h3>
+                  <div className="accred-detail__rows">
+                    <p>
+                      <strong>Email</strong> {referenteGroupQuery.data.email || "—"}
+                    </p>
+                    <p>
+                      <strong>Teléfono</strong> {referenteGroupQuery.data.phone || "—"}
+                    </p>
+                    <p>
+                      <strong>Estado</strong>{" "}
+                      {referenteGroupQuery.data.eventPerson?.status === "accredited"
+                        ? "Acreditado"
+                        : "Pendiente"}
+                    </p>
+                  </div>
+                  <p className="label-md field-label" style={{ marginTop: "1rem" }}>
+                    Personas a cargo ({referenteGroupQuery.data.people.length})
+                  </p>
+                  <p style={{ margin: "0 0 0.75rem", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                    Todas las pendientes vienen tildadas. Destildá a quien no esté con el referente.
+                  </p>
+                  <ul className="referente-people-list">
+                    {referenteGroupQuery.data.people.map((person) => {
+                      const accredited = person.status === "accredited";
+                      const checked = accredited || referenteCheckedIds.has(person.id);
+                      return (
+                        <li key={person.id} className="referente-people-list__item">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={accredited || isAccreditationClosed}
+                              onChange={() => {
+                                setReferenteCheckedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(person.id)) next.delete(person.id);
+                                  else next.add(person.id);
+                                  return next;
+                                });
+                              }}
+                            />
+                            <span>
+                              {person.person.lastName}, {person.person.firstName}
+                              {person.person.dni ? ` · DNI ${person.person.dni}` : ""}
+                            </span>
+                            {accredited ? (
+                              <span className="status-pill status-pill--active">Acreditado</span>
+                            ) : null}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS", "ACREDITADOR"]}>
+                    {isAccreditationClosed ? (
+                      <span className="status-pill" style={{ background: "var(--warning-container)" }}>
+                        Acreditación cerrada
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-danger"
+                        type="button"
+                        style={{ marginTop: "1rem" }}
+                        disabled={accreditBulkMutation.isPending}
+                        onClick={() => {
+                          setAccreditMesa("");
+                          setShowReferenteConfirm(true);
+                        }}
+                      >
+                        <Icon name="verified" />
+                        {accreditBulkMutation.isPending ? "Acreditando…" : "Acreditar seleccionadas"}
+                      </button>
+                    )}
+                  </RoleGuard>
+                  {accreditBulkMutation.isError ? (
+                    <p className="message-error">No se pudo acreditar el grupo. Reintentá.</p>
+                  ) : null}
+                </div>
+              )
+            ) : directoryMatch && !selected ? (
               <div className="accred-detail">
                 <div
                   className="message-warning"
@@ -1309,6 +1546,62 @@ export function EventDetailPage() {
             {mesasRequired ? (
               <MesaSelect
                 id="accredit-mesa"
+                mesaCount={mesaCount}
+                value={accreditMesa}
+                onChange={setAccreditMesa}
+                mesaStats={mesaStatsRows}
+                showCountsSummary
+                prominent
+              />
+            ) : null}
+          </ConfirmDialog>
+          <ConfirmDialog
+            open={showReferenteConfirm}
+            title="Acreditar grupo del referente"
+            message={
+              referenteGroupQuery.data
+                ? `Se acredita a ${referenteGroupQuery.data.name} y a las personas tildadas a cargo.`
+                : "Se acredita al referente y a las personas seleccionadas."
+            }
+            confirmLabel={
+              accreditBulkMutation.isPending
+                ? "Acreditando…"
+                : mesasRequired && !accreditMesa
+                  ? "Elegí una mesa para continuar"
+                  : "Acreditar seleccionadas"
+            }
+            confirmDisabled={
+              accreditBulkMutation.isPending ||
+              (mesasRequired &&
+                (!accreditMesa || Number(accreditMesa) < 1 || Number(accreditMesa) > mesaCount))
+            }
+            onCancel={() => {
+              setShowReferenteConfirm(false);
+              setAccreditMesa("");
+            }}
+            onConfirm={() => {
+              const group = referenteGroupQuery.data;
+              if (!group || accreditBulkMutation.isPending) return;
+              if (mesasRequired && !accreditMesa) return;
+              const ids = [
+                ...(group.eventPerson?.status === "pending" ? [group.eventPerson.id] : []),
+                ...group.people
+                  .filter((p) => p.status === "pending" && referenteCheckedIds.has(p.id))
+                  .map((p) => p.id)
+              ];
+              if (ids.length === 0) {
+                setShowReferenteConfirm(false);
+                return;
+              }
+              accreditBulkMutation.mutate({
+                eventPersonIds: ids,
+                mesa: mesasRequired ? Number(accreditMesa) : undefined
+              });
+            }}
+          >
+            {mesasRequired ? (
+              <MesaSelect
+                id="referente-accredit-mesa"
                 mesaCount={mesaCount}
                 value={accreditMesa}
                 onChange={setAccreditMesa}
@@ -1920,7 +2213,7 @@ export function EventDetailPage() {
 
       {tab === "Importar XLSX" ? (
         <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
-          <ImportWizard eventId={id} eventKind={eventKind} />
+          <ImportWizard eventId={id} eventKind={eventKind} enableReferentes={Boolean(eventQuery.data?.enableReferentes)} />
         </RoleGuard>
       ) : null}
 

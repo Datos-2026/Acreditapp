@@ -17,6 +17,7 @@ import {
   detectUniversalImportColumn,
   importRowIdKey,
   isImportNoiseColumn,
+  mergeImportExtraData,
   normalizeImportCanonical,
   normalizeImportSheetHeader,
   normalizeVecinoImportCanonical,
@@ -24,6 +25,7 @@ import {
   validateImportRow,
   validateVecinoImportRow
 } from "./import-logic";
+import { extraDataJson, summarizeReferentesFromRows, upsertReferenteForImport } from "../events/referente-import";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -143,6 +145,47 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
   };
 }
 
+async function upsertImportedEventPerson(opts: {
+  eventId: string;
+  personId: string;
+  batchId: string;
+  extraPayload: Record<string, unknown>;
+  enableReferentes: boolean;
+}) {
+  const existing = await prisma.eventPerson.findUnique({
+    where: { eventId_personId: { eventId: opts.eventId, personId: opts.personId } }
+  });
+  const merged = mergeImportExtraData(
+    (existing?.extraData as Record<string, unknown> | null) ?? null,
+    opts.extraPayload
+  );
+  let referenteId = existing?.referenteId ?? null;
+  if (opts.enableReferentes) {
+    const ref = await upsertReferenteForImport({
+      eventId: opts.eventId,
+      extraData: opts.extraPayload,
+      importBatchId: opts.batchId
+    });
+    if (ref) referenteId = ref.id;
+  }
+  return prisma.eventPerson.upsert({
+    where: { eventId_personId: { eventId: opts.eventId, personId: opts.personId } },
+    create: {
+      eventId: opts.eventId,
+      personId: opts.personId,
+      source: "imported",
+      importBatchId: opts.batchId,
+      extraData: extraDataJson(merged),
+      referenteId
+    },
+    update: {
+      importBatchId: opts.batchId,
+      extraData: extraDataJson(merged),
+      ...(referenteId ? { referenteId } : {})
+    }
+  });
+}
+
 async function importParsedRows(
   eventId: string,
   kind: EventKind,
@@ -150,6 +193,11 @@ async function importParsedRows(
   originalFilename: string,
   parsed: ReturnType<typeof parseWorkbookRows>
 ) {
+  const event = await prisma.event.findUniqueOrThrow({
+    where: { id: eventId },
+    select: { enableReferentes: true }
+  });
+  const enableReferentes = Boolean(event.enableReferentes);
   const validRows = parsed.rows.filter((row) => row.errors.length === 0);
   const invalidRows = parsed.rows.filter((row) => row.errors.length > 0);
 
@@ -237,19 +285,12 @@ async function importParsedRows(
             }
           });
 
-      await prisma.eventPerson.upsert({
-        where: { eventId_personId: { eventId, personId: person.id } },
-        create: {
-          eventId,
-          personId: person.id,
-          source: "imported",
-          importBatchId: batch.id,
-          extraData: extraPayload as Prisma.InputJsonValue
-        },
-        update: {
-          importBatchId: batch.id,
-          extraData: extraPayload as Prisma.InputJsonValue
-        }
+      await upsertImportedEventPerson({
+        eventId,
+        personId: person.id,
+        batchId: batch.id,
+        extraPayload,
+        enableReferentes
       });
     } else {
       const identity = resolveImportIdentity(mapped);
@@ -285,25 +326,12 @@ async function importParsedRows(
         }
       });
 
-      await prisma.eventPerson.upsert({
-        where: { eventId_personId: { eventId, personId: person.id } },
-        create: {
-          eventId,
-          personId: person.id,
-          source: "imported",
-          importBatchId: batch.id,
-          extraData:
-            Object.keys(extraPayload).length > 0
-              ? (extraPayload as Prisma.InputJsonValue)
-              : Prisma.JsonNull
-        },
-        update: {
-          importBatchId: batch.id,
-          extraData:
-            Object.keys(extraPayload).length > 0
-              ? (extraPayload as Prisma.InputJsonValue)
-              : Prisma.JsonNull
-        }
+      await upsertImportedEventPerson({
+        eventId,
+        personId: person.id,
+        batchId: batch.id,
+        extraPayload,
+        enableReferentes
       });
     }
     importedRows += 1;
@@ -442,6 +470,11 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
     }
 
     const parsed = parseWorkbookRows(req.file.buffer, kind);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { enableReferentes: true }
+    });
+    const referentes = event.enableReferentes ? summarizeReferentesFromRows(parsed.rows) : [];
     if (kind === "vecinos") {
       const identities = parsed.rows
         .map((row) => resolveImportIdentity(row.canonical))
@@ -468,20 +501,25 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
           ]
         }
       });
-      res.json({
-        originalFilename: req.file.originalname,
-        sheetName: parsed.sheetName,
-        headers: parsed.headers,
-        mapping: parsed.mapping,
-        previewRows: parsed.rows,
-        summary: {
-          ...parsed.summary,
-          existingInEvent: existingInEvent.length,
-          existingGlobal: existingGlobal.length,
-          newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0)
-        }
-      });
-      return;
+    const extraSummary = {
+      existingInEvent: existingInEvent.length,
+      existingGlobal: existingGlobal.length,
+      newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0)
+    };
+    res.json({
+      originalFilename: req.file.originalname,
+      sheetName: parsed.sheetName,
+      headers: parsed.headers,
+      mapping: parsed.mapping,
+      previewRows: parsed.rows,
+      summary: {
+        ...parsed.summary,
+        ...extraSummary,
+        referentesCount: referentes.length,
+        referentes
+      }
+    });
+    return;
     }
 
     const cuils = parsed.rows.map((row) => normalizeCuil(String(row.canonical.cuil ?? ""))).filter(Boolean);
@@ -506,7 +544,9 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
         ...parsed.summary,
         existingInEvent: existingInEvent.length,
         existingGlobal: existingGlobal.length,
-        newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0)
+        newPeople: Math.max(parsed.summary.validRows - existingGlobal.length, 0),
+        referentesCount: referentes.length,
+        referentes
       }
     });
   } catch (error) {

@@ -21,6 +21,7 @@ export type EventCardDto = {
   enableMesas?: boolean;
   enableNotes?: boolean;
   enableGoogleSheets?: boolean;
+  enableReferentes?: boolean;
   meetingMinutes?: string | null;
   mesaCount?: number | null;
   googleSheetName?: string | null;
@@ -142,8 +143,31 @@ export type EventPersonDto = {
   accreditedAt: string | null;
   eventNotes?: string | null;
   extraData?: Record<string, unknown> | null;
+  isReferente?: boolean;
+  referenteId?: string | null;
   person: PersonSummaryDto;
   accreditedByUser?: { id: string; name: string } | null;
+};
+
+export type EventReferenteListItemDto = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  peopleCount: number;
+  pendingCount: number;
+  accreditedCount: number;
+  eventPersonId: string | null;
+  eventPersonStatus: "pending" | "accredited" | null;
+};
+
+export type EventReferenteGroupDto = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  eventPerson: EventPersonDto | null;
+  people: EventPersonDto[];
 };
 
 export type DirectoryPersonDto = {

@@ -20,6 +20,7 @@ type EventDto = {
   enableMesas: boolean;
   enableNotes: boolean;
   enableGoogleSheets: boolean;
+  enableReferentes: boolean;
   mesaCount: number | null;
 };
 
@@ -44,6 +45,7 @@ export function EditEventPage() {
   const enableMesas = watch("enableMesas");
   const enableNotes = watch("enableNotes");
   const enableGoogleSheets = watch("enableGoogleSheets");
+  const enableReferentes = watch("enableReferentes");
 
   useEffect(() => {
     if (!eventQuery.data) return;
@@ -59,6 +61,7 @@ export function EditEventPage() {
       enableMesas: e.enableMesas,
       enableNotes: e.enableNotes,
       enableGoogleSheets: e.enableGoogleSheets,
+      enableReferentes: e.enableReferentes,
       mesaCount: e.mesaCount ?? undefined
     });
   }, [eventQuery.data, reset]);
@@ -186,6 +189,13 @@ export function EditEventPage() {
               description="Habilita una pestaña para cargar una nota por persona acreditada."
               checked={Boolean(enableNotes)}
               onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+            <ToggleField
+              id="enableReferentes"
+              label="¿Trabaja con referentes?"
+              description="Al acreditar, se puede buscar un referente y acreditar a las personas a cargo."
+              checked={Boolean(enableReferentes)}
+              onChange={(checked) => setValue("enableReferentes", checked, { shouldValidate: true })}
             />
             <ToggleField
               id="enableGoogleSheets"

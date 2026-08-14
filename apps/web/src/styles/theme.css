@@ -972,6 +972,39 @@ a.tab-btn--informe {
   margin-top: 0;
 }
 
+.referente-people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+}
+
+.referente-people-list__item {
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+.referente-people-list__item:last-child {
+  border-bottom: 0;
+}
+
+.referente-people-list__item label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.referente-people-list__item input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--primary-container);
+}
+
 .two-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;

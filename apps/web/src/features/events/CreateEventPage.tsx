@@ -24,12 +24,14 @@ export function CreateEventPage() {
       kind: forceVecinos ? "vecinos" : "gcba",
       enableMesas: false,
       enableNotes: false,
-      enableGoogleSheets: false
+      enableGoogleSheets: false,
+      enableReferentes: false
     }
   });
   const enableMesas = watch("enableMesas");
   const enableNotes = watch("enableNotes");
   const enableGoogleSheets = watch("enableGoogleSheets");
+  const enableReferentes = watch("enableReferentes");
   const mutation = useMutation({
     mutationFn: async (values: EventFormValues) => {
       const { data } = await api.post<{ id: string }>("/events", eventFormToPayload(values));
@@ -154,6 +156,13 @@ export function CreateEventPage() {
               description="Habilita una pestaña para cargar una nota por persona acreditada."
               checked={enableNotes}
               onChange={(checked) => setValue("enableNotes", checked, { shouldValidate: true })}
+            />
+            <ToggleField
+              id="enableReferentes"
+              label="¿Trabaja con referentes?"
+              description="Al acreditar, se puede buscar un referente y acreditar a las personas a cargo."
+              checked={enableReferentes}
+              onChange={(checked) => setValue("enableReferentes", checked, { shouldValidate: true })}
             />
             <ToggleField
               id="enableGoogleSheets"

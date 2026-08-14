@@ -131,6 +131,7 @@ const eventSchema = z.object({
   enableMesas: z.boolean().default(false),
   enableNotes: z.boolean().default(false),
   enableGoogleSheets: z.boolean().default(false),
+  enableReferentes: z.boolean().default(false),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -146,6 +147,7 @@ const eventPatchSchema = z.object({
   enableMesas: z.boolean().optional(),
   enableNotes: z.boolean().optional(),
   enableGoogleSheets: z.boolean().optional(),
+  enableReferentes: z.boolean().optional(),
   mesaCount: z.number().int().min(1).max(99).optional().nullable(),
   googleSheetName: z.string().max(100).optional().nullable()
 });
@@ -301,6 +303,7 @@ router.post(
     const features = normalizeEventFeatures({
       enableMesas: req.body.enableMesas,
       enableNotes: req.body.enableNotes,
+      enableReferentes: req.body.enableReferentes,
       mesaCount: req.body.mesaCount
     });
 
@@ -933,19 +936,22 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
     if (
       Object.prototype.hasOwnProperty.call(req.body, "enableMesas") ||
       Object.prototype.hasOwnProperty.call(req.body, "enableNotes") ||
+      Object.prototype.hasOwnProperty.call(req.body, "enableReferentes") ||
       Object.prototype.hasOwnProperty.call(req.body, "mesaCount")
     ) {
       const current = await prisma.event.findUniqueOrThrow({
         where: { id: req.params.id },
-        select: { enableMesas: true, enableNotes: true, mesaCount: true }
+        select: { enableMesas: true, enableNotes: true, enableReferentes: true, mesaCount: true }
       });
       const features = normalizeEventFeatures({
         enableMesas: req.body.enableMesas ?? current.enableMesas,
         enableNotes: req.body.enableNotes ?? current.enableNotes,
+        enableReferentes: req.body.enableReferentes ?? current.enableReferentes,
         mesaCount: req.body.mesaCount ?? current.mesaCount
       });
       data.enableMesas = features.enableMesas;
       data.enableNotes = features.enableNotes;
+      data.enableReferentes = features.enableReferentes;
       data.mesaCount = features.mesaCount;
     }
     if (Object.prototype.hasOwnProperty.call(req.body, "enableGoogleSheets")) {
@@ -1122,6 +1128,155 @@ router.post(
   }
 );
 
+const accreditBulkBodySchema = z.object({
+  eventPersonIds: z.array(z.string()).min(1).max(500),
+  notes: z.string().optional().nullable(),
+  mesa: z.coerce.number().int().min(1).max(99).optional()
+});
+
+type EventForAccredit = {
+  id: string;
+  kind: EventKind;
+  name: string;
+  startAt: Date;
+  enableMesas: boolean;
+  enableGoogleSheets: boolean;
+  mesaCount: number | null;
+  googleSheetName: string | null;
+};
+
+async function accreditEventPersonRecord(params: {
+  eventPersonId: string;
+  eventId: string;
+  userId: string;
+  event: EventForAccredit;
+  mesa?: number;
+  notes?: string | null;
+  skipIfAccredited?: boolean;
+}) {
+  const current = await prisma.eventPerson.findUniqueOrThrow({
+    where: { id: params.eventPersonId }
+  });
+  if (current.eventId !== params.eventId) throw new AppError("Registro fuera de evento", 400);
+  if (current.status === EventPersonStatus.accredited) {
+    if (params.skipIfAccredited) return null;
+    ensureNotAlreadyAccredited(current.status);
+  }
+
+  let extraData = (current.extraData as Record<string, unknown> | null) ?? {};
+  let assignedMesa: number | null = null;
+
+  if (mesasActive(params.event)) {
+    const mesaNum =
+      typeof params.mesa === "number" ? params.mesa : parseMesaNumber(params.mesa);
+    if (!mesaNum || mesaNum < 1 || mesaNum > (params.event.mesaCount ?? 0)) {
+      throw new AppError(`Seleccioná una mesa entre 1 y ${params.event.mesaCount}`, 400);
+    }
+    assignedMesa = mesaNum;
+    extraData = mergeMesaIntoExtraData(extraData, mesaNum);
+  }
+
+  const eventPerson = await prisma.eventPerson.update({
+    where: { id: params.eventPersonId },
+    data: {
+      status: "accredited",
+      accreditedAt: new Date(),
+      accreditedByUserId: params.userId,
+      accreditationNotes: params.notes ?? null,
+      extraData: Object.keys(extraData).length > 0 ? (extraData as Prisma.InputJsonValue) : Prisma.JsonNull
+    },
+    include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+  });
+
+  if (googleSheetsActive(params.event) && isGoogleSheetsConfigured()) {
+    void (async () => {
+      try {
+        const sheetName = await ensureEventGoogleSheet(params.event);
+        if (sheetName) await appendVecinoAccreditationToSheet(params.eventId, sheetName, eventPerson);
+      } catch (err) {
+        recordVecinoSheetError(params.eventId, formatGoogleSheetsError(err));
+        logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a Google Sheets");
+      }
+    })();
+  }
+
+  return { eventPerson, assignedMesa };
+}
+
+router.get("/:id/referentes", async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const q = String(req.query.q ?? "").trim();
+    if (q.length < 2) {
+      res.json({ total: 0, rows: [] });
+      return;
+    }
+    const rows = await prisma.eventReferente.findMany({
+      where: {
+        eventId: req.params.id,
+        OR: [
+          { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          { emailNormalized: { contains: q.toLowerCase() } }
+        ]
+      },
+      include: {
+        eventPerson: { select: { id: true, status: true } },
+        _count: { select: { people: true } },
+        people: { select: { status: true } }
+      },
+      orderBy: { name: "asc" },
+      take: 50
+    });
+    res.json({
+      total: rows.length,
+      rows: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        peopleCount: row._count.people,
+        pendingCount: row.people.filter((p) => p.status === EventPersonStatus.pending).length,
+        accreditedCount: row.people.filter((p) => p.status === EventPersonStatus.accredited).length,
+        eventPersonId: row.eventPerson?.id ?? row.eventPersonId,
+        eventPersonStatus: row.eventPerson?.status ?? null
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/referentes/:referenteId", async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const referente = await prisma.eventReferente.findFirst({
+      where: { id: req.params.referenteId, eventId: req.params.id },
+      include: {
+        eventPerson: {
+          include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
+        },
+        people: {
+          where: { isReferente: false },
+          include: { person: true, accreditedByUser: { select: { id: true, name: true } } },
+          orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
+        }
+      }
+    });
+    if (!referente) throw new AppError("Referente no encontrado", 404);
+    res.json({
+      id: referente.id,
+      name: referente.name,
+      email: referente.email,
+      phone: referente.phone,
+      eventPerson: referente.eventPerson,
+      people: referente.people
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/:id/people", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
@@ -1141,7 +1296,8 @@ router.get("/:id/people", async (req, res, next) => {
       orFilters.push(
         { person: { firstName: { contains: q, mode: Prisma.QueryMode.insensitive } } },
         { person: { lastName: { contains: q, mode: Prisma.QueryMode.insensitive } } },
-        { person: { dni: { contains: q, mode: Prisma.QueryMode.insensitive } } }
+        { person: { dni: { contains: q, mode: Prisma.QueryMode.insensitive } } },
+        { person: { email: { contains: q, mode: Prisma.QueryMode.insensitive } } }
       );
     }
 
@@ -1150,6 +1306,7 @@ router.get("/:id/people", async (req, res, next) => {
       ...(status ? { status } : {}),
       ...(source ? { source } : {}),
       ...(accreditedByUserId ? { accreditedByUserId } : {}),
+      ...(req.query.excludeReferentes === "true" ? { isReferente: false } : {}),
       ...(orFilters.length > 0 ? { OR: orFilters } : {})
     };
 
@@ -1619,13 +1776,15 @@ router.post("/:id/people/manual", requireRoles(...ACCREDIT_ROLES), validateBody(
   }
 });
 
-router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLES), validateBody(accreditBodySchema), async (req, res, next) => {
-  try {
-    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
-    await assertEventAcceptingAccreditations(req.params.id);
-    const [current, event] = await Promise.all([
-      prisma.eventPerson.findUniqueOrThrow({ where: { id: req.params.eventPersonId } }),
-      prisma.event.findUniqueOrThrow({
+router.post(
+  "/:id/people/accredit-bulk",
+  requireRoles(...ACCREDIT_ROLES),
+  validateBody(accreditBulkBodySchema),
+  async (req, res, next) => {
+    try {
+      await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+      await assertEventAcceptingAccreditations(req.params.id);
+      const event = await prisma.event.findUniqueOrThrow({
         where: { id: req.params.id },
         select: {
           id: true,
@@ -1637,56 +1796,80 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
           mesaCount: true,
           googleSheetName: true
         }
-      })
-    ]);
-    if (current.eventId !== req.params.id) throw new AppError("Registro fuera de evento", 400);
-    ensureNotAlreadyAccredited(current.status);
-
-    let extraData = (current.extraData as Record<string, unknown> | null) ?? {};
-    let assignedMesa: number | null = null;
-
-    if (mesasActive(event)) {
-      const mesaNum =
-        typeof req.body.mesa === "number" ? req.body.mesa : parseMesaNumber(req.body.mesa);
-      if (!mesaNum || mesaNum < 1 || mesaNum > (event.mesaCount ?? 0)) {
-        throw new AppError(`Seleccioná una mesa entre 1 y ${event.mesaCount}`, 400);
-      }
-      assignedMesa = mesaNum;
-      extraData = mergeMesaIntoExtraData(extraData, mesaNum);
-    }
-
-    const eventPerson = await prisma.eventPerson.update({
-      where: { id: req.params.eventPersonId },
-      data: {
-        status: "accredited",
-        accreditedAt: new Date(),
-        accreditedByUserId: req.auth!.id,
-        accreditationNotes: req.body?.notes ?? null,
-        extraData: Object.keys(extraData).length > 0 ? (extraData as Prisma.InputJsonValue) : Prisma.JsonNull
-      },
-      include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
-    });
-
-    if (googleSheetsActive(event) && isGoogleSheetsConfigured()) {
-      void (async () => {
-        try {
-          const sheetName = await ensureEventGoogleSheet(event);
-          if (sheetName) await appendVecinoAccreditationToSheet(req.params.id, sheetName, eventPerson);
-        } catch (err) {
-          recordVecinoSheetError(req.params.id, formatGoogleSheetsError(err));
-          logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a Google Sheets");
+      });
+      const ids = [...new Set(req.body.eventPersonIds as string[])];
+      const accredited: string[] = [];
+      const skipped: string[] = [];
+      let assignedMesa: number | null = null;
+      for (const eventPersonId of ids) {
+        const result = await accreditEventPersonRecord({
+          eventPersonId,
+          eventId: req.params.id,
+          userId: req.auth!.id,
+          event,
+          mesa: req.body.mesa,
+          notes: req.body?.notes ?? null,
+          skipIfAccredited: true
+        });
+        if (!result) {
+          skipped.push(eventPersonId);
+          continue;
         }
-      })();
+        accredited.push(eventPersonId);
+        assignedMesa = result.assignedMesa;
+      }
+      await createAuditLog({
+        req,
+        action: "eventPerson.accreditBulk",
+        entityType: "event",
+        entityId: req.params.id,
+        metadata: {
+          accredited: accredited.length,
+          skipped: skipped.length,
+          ...(assignedMesa != null ? { assignedMesa: mesaLabel(assignedMesa) } : {})
+        }
+      });
+      res.json({ accredited: accredited.length, skipped: skipped.length, accreditedIds: accredited });
+    } catch (error) {
+      next(error);
     }
+  }
+);
 
+router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLES), validateBody(accreditBodySchema), async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    await assertEventAcceptingAccreditations(req.params.id);
+    const event = await prisma.event.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        kind: true,
+        name: true,
+        startAt: true,
+        enableMesas: true,
+        enableGoogleSheets: true,
+        mesaCount: true,
+        googleSheetName: true
+      }
+    });
+    const result = await accreditEventPersonRecord({
+      eventPersonId: req.params.eventPersonId,
+      eventId: req.params.id,
+      userId: req.auth!.id,
+      event,
+      mesa: req.body.mesa,
+      notes: req.body?.notes ?? null
+    });
+    if (!result) throw new AppError("Persona ya acreditada", 409);
     await createAuditLog({
       req,
       action: "eventPerson.accredit",
       entityType: "eventPerson",
-      entityId: eventPerson.id,
-      metadata: assignedMesa != null ? { assignedMesa: mesaLabel(assignedMesa) } : undefined
+      entityId: result.eventPerson.id,
+      metadata: result.assignedMesa != null ? { assignedMesa: mesaLabel(result.assignedMesa) } : undefined
     });
-    res.json(eventPerson);
+    res.json(result.eventPerson);
   } catch (error) {
     next(error);
   }
