@@ -253,7 +253,7 @@ function FueraDeBaseSuccessCard({
       <h4 className="fuera-base-success-card__title">Acreditado fuera de base</h4>
       {name ? <p className="fuera-base-success-card__name">{name}</p> : null}
       {person.document ? <p className="fuera-base-success-card__doc">{person.document}</p> : null}
-      <p className="fuera-base-success-card__hint">La persona ya figura acreditada en este evento.</p>
+      <p className="fuera-base-success-card__hint">Se acreditó fuera de base correctamente.</p>
     </div>
   );
 }
