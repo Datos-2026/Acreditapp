@@ -271,6 +271,7 @@ export function EventDetailPage() {
   const [showDirectoryFueraConfirm, setShowDirectoryFueraConfirm] = useState(false);
   const [accreditMesa, setAccreditMesa] = useState("");
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
+  const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [fueraDeBaseSuccess, setFueraDeBaseSuccess] = useState<{
     firstName: string;
     lastName: string;
@@ -659,6 +660,15 @@ export function EventDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "searchByCuil"] });
       void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+    }
+  });
+
+  const manualMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => (await api.post(`/events/${id}/people/manual`, payload)).data,
+    onSuccess: () => {
+      setUiNotice("Alta fuera de base registrada.");
+      void queryClient.invalidateQueries({ queryKey: ["people", id] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
     }
   });
 
@@ -1659,6 +1669,16 @@ export function EventDetailPage() {
               </p>
             </div>
             <div className="row gap" style={{ flexWrap: "wrap" }}>
+              <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowFueraManualForm((v) => !v)}
+                >
+                  <Icon name="person_add" />
+                  {showFueraManualForm ? "Ocultar formulario de alta" : "Registrar nuevo fuera de base"}
+                </button>
+              </RoleGuard>
               <button
                 type="button"
                 className="btn btn-primary"
@@ -1675,6 +1695,18 @@ export function EventDetailPage() {
               </button>
             </div>
           </div>
+          <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
+            {showFueraManualForm ? (
+              <div style={{ marginBottom: "1.5rem" }}>
+                <ManualPersonForm
+                  onSubmit={(values) => manualMutation.mutate(values as unknown as Record<string, unknown>)}
+                />
+                {manualMutation.isError ? (
+                  <p className="message-error">No se pudo registrar la persona fuera de base.</p>
+                ) : null}
+              </div>
+            ) : null}
+          </RoleGuard>
           {accreditedManualQuery.isLoading ? (
             <p className="page-state">Cargando…</p>
           ) : (
