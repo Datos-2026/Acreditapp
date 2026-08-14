@@ -238,6 +238,26 @@ const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
   config: "Configuración"
 };
 
+function FueraDeBaseSuccessCard({
+  person
+}: {
+  person: { firstName: string; lastName: string; document: string };
+}) {
+  const name = [person.lastName, person.firstName].filter(Boolean).join(", ");
+  return (
+    <div id="fuera-base-success-card" className="fuera-base-success-card" role="status">
+      <p className="fuera-base-success-card__kicker">
+        <Icon name="verified" filled />
+        Listo
+      </p>
+      <h4 className="fuera-base-success-card__title">Acreditado fuera de base</h4>
+      {name ? <p className="fuera-base-success-card__name">{name}</p> : null}
+      {person.document ? <p className="fuera-base-success-card__doc">{person.document}</p> : null}
+      <p className="fuera-base-success-card__hint">La persona ya figura acreditada en este evento.</p>
+    </div>
+  );
+}
+
 export function EventDetailPage() {
   const { user } = useAuth();
   const { setLastEventId } = useLastEvent();
@@ -250,8 +270,12 @@ export function EventDetailPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showDirectoryFueraConfirm, setShowDirectoryFueraConfirm] = useState(false);
   const [accreditMesa, setAccreditMesa] = useState("");
-  const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
+  const [fueraDeBaseSuccess, setFueraDeBaseSuccess] = useState<{
+    firstName: string;
+    lastName: string;
+    document: string;
+  } | null>(null);
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
   const [uiNotice, setUiNotice] = useState<string | null>(null);
   const [liveSearchInput, setLiveSearchInput] = useState("");
@@ -565,6 +589,11 @@ export function EventDetailPage() {
   };
 
   useEffect(() => {
+    if (!fueraDeBaseSuccess || !showFueraDeBaseModal) return;
+    document.getElementById("fuera-base-success-card")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [fueraDeBaseSuccess, showFueraDeBaseModal]);
+
+  useEffect(() => {
     setAccreditMesa("");
   }, [selected?.id, directoryMatch?.directoryPerson]);
 
@@ -597,14 +626,6 @@ export function EventDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
-  const manualMutation = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => (await api.post(`/events/${id}/people/manual`, payload)).data,
-    onSuccess: () => {
-      setUiNotice("Alta fuera de base registrada.");
-      void queryClient.invalidateQueries({ queryKey: ["people", id] });
-      void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
-    }
-  });
   const manualFromDirectoryMutation = useMutation({
     mutationFn: async (payload: { cuilNormalized?: string; dni?: string; mesa?: number }) => {
       const created = await api.post<{ id: string }>(`/events/${id}/people/manual-from-directory`, payload);
@@ -614,17 +635,24 @@ export function EventDetailPage() {
       return created.data;
     },
     onSuccess: () => {
+      if (directoryMatch) {
+        const person = directoryMatch.directoryPerson;
+        setFueraDeBaseSuccess({
+          firstName: person.firstName,
+          lastName: person.lastName,
+          document:
+            directoryMatch.directoryKind === "vecinos"
+              ? (person as VecinoDirectoryPersonDto).dni
+              : (person as DirectoryPersonDto).cuilNormalized
+        });
+      }
       setSelected(null);
       setShowDirectoryFueraConfirm(false);
       setAccreditMesa("");
       setLastSearchedCuil("");
       setLiveSearchInput("");
       setDebouncedSearch("");
-      setUiNotice(
-        isVecinosEvent
-          ? "Persona del directorio de vecinos acreditada fuera de base."
-          : "Persona del directorio GCBA acreditada fuera de base."
-      );
+      setUiNotice(null);
       void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
@@ -642,15 +670,19 @@ export function EventDetailPage() {
       });
       return created.data;
     },
-    onSuccess: () => {
-      setShowFueraDeBaseModal(false);
+    onSuccess: (_data, variables) => {
+      const values = variables.values;
+      setFueraDeBaseSuccess({
+        firstName: String(values.firstName ?? ""),
+        lastName: String(values.lastName ?? ""),
+        document: String(values.cuilRaw ?? "")
+      });
       setShowConfirm(false);
       setAccreditMesa("");
       setSelected(null);
-      setLastSearchedCuil("");
       setLiveSearchInput("");
       setDebouncedSearch("");
-      setUiNotice("Persona registrada y acreditada fuera de base.");
+      setUiNotice(null);
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
@@ -896,6 +928,7 @@ export function EventDetailPage() {
                 value={liveSearchInput}
                 onChange={(e) => {
                   setUiNotice(null);
+                  setFueraDeBaseSuccess(null);
                   setSearchedOnce(false);
                   setLiveSearchInput(e.target.value);
                 }}
@@ -1085,6 +1118,7 @@ export function EventDetailPage() {
                       onClick={() => {
                         setLastSearchedCuil(debouncedSearch.replace(/\D/g, ""));
                         setUiNotice(null);
+                        setFueraDeBaseSuccess(null);
                         setAccreditMesa("");
                         setShowFueraDeBaseModal(true);
                       }}
@@ -1225,6 +1259,8 @@ export function EventDetailPage() {
                   )}
                 </div>
               </div>
+            ) : fueraDeBaseSuccess && !showFueraDeBaseModal ? (
+              <FueraDeBaseSuccessCard person={fueraDeBaseSuccess} />
             ) : (
               <p style={{ color: "var(--on-surface-variant)", fontWeight: 600 }}>
                 {debouncedSearch.length >= 2 && displayRows.length > 0 && !searchedOnce
@@ -1320,12 +1356,12 @@ export function EventDetailPage() {
           </ConfirmDialog>
           {showFueraDeBaseModal ? (
             <div className="modal-backdrop">
-              <div className="modal card" style={{ width: "min(720px, 95vw)" }}>
+              <div className="modal card" style={{ width: "min(720px, 95vw)", maxHeight: "90vh", overflow: "auto" }}>
                 <h3 style={{ marginTop: 0 }}>Acreditar fuera de base</h3>
                 <p style={{ color: "var(--on-surface-variant)" }}>
                   Registrá la persona manualmente y se acredita en este evento.
                 </p>
-                {mesasRequired ? (
+                {mesasRequired && !fueraDeBaseSuccess ? (
                   <MesaSelect
                     id="fuera-base-mesa"
                     mesaCount={mesaCount}
@@ -1339,17 +1375,25 @@ export function EventDetailPage() {
                 <ManualPersonForm
                   initialCuilRaw={lastSearchedCuil}
                   submitLabel={
-                    manualAndAccreditMutation.isPending
-                      ? "Procesando..."
-                      : mesasRequired && !accreditMesa
-                        ? "Elegí una mesa para continuar"
-                        : "Registrar y acreditar"
+                    fueraDeBaseSuccess
+                      ? "Ya acreditado"
+                      : manualAndAccreditMutation.isPending
+                        ? "Procesando..."
+                        : mesasRequired && !accreditMesa
+                          ? "Elegí una mesa para continuar"
+                          : "Registrar y acreditar"
                   }
-                  submitDisabled={manualAndAccreditMutation.isPending || (mesasRequired && !accreditMesa)}
+                  submitDisabled={
+                    Boolean(fueraDeBaseSuccess) ||
+                    manualAndAccreditMutation.isPending ||
+                    (mesasRequired && !accreditMesa)
+                  }
                   submitDisabledHint={
-                    mesasRequired && !accreditMesa
-                      ? "La mesa es obligatoria para registrar y acreditar fuera de base."
-                      : undefined
+                    fueraDeBaseSuccess
+                      ? undefined
+                      : mesasRequired && !accreditMesa
+                        ? "La mesa es obligatoria para registrar y acreditar fuera de base."
+                        : undefined
                   }
                   onSubmit={(values) =>
                     manualAndAccreditMutation.mutate({
@@ -1361,17 +1405,20 @@ export function EventDetailPage() {
                 {manualAndAccreditMutation.isError ? (
                   <p className="message-error">No se pudo registrar/acreditar fuera de base. Reintentá.</p>
                 ) : null}
+                {fueraDeBaseSuccess ? <FueraDeBaseSuccessCard person={fueraDeBaseSuccess} /> : null}
                 <div className="row gap" style={{ justifyContent: "flex-end", marginTop: "0.75rem" }}>
                   <button
                     type="button"
-                    className="btn btn-secondary"
+                    className={fueraDeBaseSuccess ? "btn btn-primary" : "btn btn-secondary"}
                     onClick={() => {
                       setShowFueraDeBaseModal(false);
                       setAccreditMesa("");
+                      setLastSearchedCuil("");
                       setUiNotice(null);
+                      manualAndAccreditMutation.reset();
                     }}
                   >
-                    Cerrar
+                    {fueraDeBaseSuccess ? "Listo" : "Cerrar"}
                   </button>
                 </div>
               </div>
@@ -1612,16 +1659,6 @@ export function EventDetailPage() {
               </p>
             </div>
             <div className="row gap" style={{ flexWrap: "wrap" }}>
-              <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowFueraManualForm((v) => !v)}
-                >
-                  <Icon name="person_add" />
-                  {showFueraManualForm ? "Ocultar formulario de alta" : "Registrar nuevo fuera de base"}
-                </button>
-              </RoleGuard>
               <button
                 type="button"
                 className="btn btn-primary"
@@ -1638,18 +1675,6 @@ export function EventDetailPage() {
               </button>
             </div>
           </div>
-          <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
-            {showFueraManualForm ? (
-              <div style={{ marginBottom: "1.5rem" }}>
-                <ManualPersonForm
-                  onSubmit={(values) => manualMutation.mutate(values as unknown as Record<string, unknown>)}
-                />
-                {manualMutation.isError ? (
-                  <p className="message-error">No se pudo registrar la persona fuera de base.</p>
-                ) : null}
-              </div>
-            ) : null}
-          </RoleGuard>
           {accreditedManualQuery.isLoading ? (
             <p className="page-state">Cargando…</p>
           ) : (

@@ -921,6 +921,57 @@ a.tab-btn--informe {
   width: min(460px, 94vw);
 }
 
+.fuera-base-success-card {
+  margin-top: 1.25rem;
+  padding: 1.35rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--tertiary-fixed);
+  color: var(--on-tertiary-fixed);
+  border: 2px solid var(--tertiary-fixed-dim);
+  box-shadow: var(--shadow-card);
+}
+
+.fuera-base-success-card__kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fuera-base-success-card__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.fuera-base-success-card__name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.fuera-base-success-card__doc {
+  margin: 0.25rem 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.fuera-base-success-card__hint {
+  margin: 0.75rem 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.detail-panel .fuera-base-success-card {
+  margin-top: 0;
+}
+
 .two-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
