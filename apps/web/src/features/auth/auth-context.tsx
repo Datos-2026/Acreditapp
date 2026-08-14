@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 import type { PropsWithChildren } from "react";
 import type { AuthUser } from "@gcba/shared";
 import { api, setAccessToken } from "../../lib/api";
@@ -17,7 +17,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [accessToken, setToken] = useState<string | null>(null);
 
-  const refreshMe = async () => {
+  const refreshMe = useCallback(async () => {
     const loadMe = async () => {
       const me = await api.get<AuthUser>("/auth/me");
       setUser(me.data);
@@ -42,7 +42,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setAccessToken(null);
       }
     }
-  };
+  }, [accessToken]);
 
   const login = async (email: string, password: string) => {
     const response = await api.post<{ accessToken: string }>("/auth/login", { email, password });

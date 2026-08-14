@@ -1,6 +1,7 @@
 import { UserRole } from "../../prisma-exports";
 import { AppError } from "../../middlewares/error-handler";
 import { prisma } from "../../lib/prisma";
+import { isDevSkipAuth, LOCAL_DEV_EVENT_SLUG } from "../../lib/dev-skip-auth";
 
 export async function ensureEventAccess(
   eventId: string,
@@ -8,6 +9,16 @@ export async function ensureEventAccess(
   isSuperAdmin: boolean,
   userRole?: string
 ): Promise<void> {
+  if (!isDevSkipAuth()) {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { slug: true }
+    });
+    if (event?.slug === LOCAL_DEV_EVENT_SLUG) {
+      throw new AppError("Evento no encontrado", 404);
+    }
+  }
+
   if (isSuperAdmin) return;
 
   if (userRole === UserRole.ADMIN_VECINOS) {

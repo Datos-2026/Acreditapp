@@ -20,6 +20,16 @@ export async function login(email: string, password: string): Promise<{ tokens: 
   const isValid = await bcrypt.compare(password, user.passwordHash);
   if (!isValid) throw new AppError("Credenciales inválidas", StatusCodes.UNAUTHORIZED);
 
+  const tokens = await issueTokensForUser(user);
+  return { tokens, userId: user.id };
+}
+
+export async function issueTokensForUser(user: {
+  id: string;
+  role: string;
+  email: string;
+  name: string;
+}): Promise<AuthTokens> {
   const accessToken = jwt.sign(
     { role: user.role, email: user.email, name: user.name },
     env.JWT_ACCESS_SECRET,
@@ -36,7 +46,7 @@ export async function login(email: string, password: string): Promise<{ tokens: 
     data: { refreshToken }
   });
 
-  return { tokens: { accessToken, refreshToken }, userId: user.id };
+  return { accessToken, refreshToken };
 }
 
 export async function refresh(refreshToken: string): Promise<AuthTokens> {

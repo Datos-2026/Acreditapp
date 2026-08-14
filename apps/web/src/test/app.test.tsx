@@ -9,6 +9,7 @@ import { PersonSummaryCard } from "../components/PersonSummaryCard";
 vi.mock("../features/auth/auth-context", () => ({
   useAuth: () => ({
     login: vi.fn(),
+    refreshMe: vi.fn(),
     user: null
   })
 }));

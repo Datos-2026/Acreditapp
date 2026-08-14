@@ -6,8 +6,9 @@ import { requireAuth } from "../../middlewares/auth";
 import { createAuditLog } from "../../lib/audit";
 import { logger } from "../../lib/logger";
 import { env } from "../../config/env";
-import { login, logout, refresh } from "./auth.service";
+import { login, logout, refresh, issueTokensForUser } from "./auth.service";
 import { prisma } from "../../lib/prisma";
+import { ensureLocalDevWorkspace, isDevSkipAuth } from "../../lib/dev-skip-auth";
 
 const refreshCookieOptions = {
   httpOnly: true,
@@ -48,6 +49,13 @@ router.post("/refresh", async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken as string | undefined;
     if (!refreshToken) {
+      if (isDevSkipAuth()) {
+        const user = await ensureLocalDevWorkspace();
+        const tokens = await issueTokensForUser(user);
+        res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
+        res.json({ accessToken: tokens.accessToken });
+        return;
+      }
       res.status(401).json({ message: "No autenticado" });
       return;
     }

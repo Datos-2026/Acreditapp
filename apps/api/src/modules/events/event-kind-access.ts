@@ -3,6 +3,7 @@ import { UserRole } from "../../prisma-exports";
 import type { Prisma } from "../../prisma-exports";
 import { AppError } from "../../middlewares/error-handler";
 import { prisma } from "../../lib/prisma";
+import { isDevSkipAuth, LOCAL_DEV_EVENT_SLUG } from "../../lib/dev-skip-auth";
 
 export function isSuperAdmin(role: string): boolean {
   return role === UserRole.SUPERADMIN;
@@ -14,14 +15,16 @@ export function isAdminVecinos(role: string): boolean {
 
 /** Filtro de listado de eventos según rol del usuario autenticado. */
 export function eventsListWhere(userId: string, role: string): Prisma.EventWhereInput {
-  if (role === UserRole.SUPERADMIN) return {};
+  const hideLocalDev: Prisma.EventWhereInput = isDevSkipAuth()
+    ? {}
+    : { slug: { not: LOCAL_DEV_EVENT_SLUG } };
+  if (role === UserRole.SUPERADMIN) return hideLocalDev;
   if (role === UserRole.ADMIN_VECINOS) {
     return {
-      kind: "vecinos",
-      eventUsers: { some: { userId } }
+      AND: [hideLocalDev, { kind: "vecinos", eventUsers: { some: { userId } } }]
     };
   }
-  return { eventUsers: { some: { userId } } };
+  return { AND: [hideLocalDev, { eventUsers: { some: { userId } } }] };
 }
 
 export function assertRoleCanCreateEventKind(role: string, kind: EventKind): void {

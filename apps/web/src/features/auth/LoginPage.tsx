@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { loginSchema } from "@gcba/shared";
 import type { z } from "zod";
-import { useNavigate, useLocation } from "react-router-dom";
+import { Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "./auth-context";
 import { Icon } from "../../components/Icon";
 
 type FormValues = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, refreshMe } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const fromPath = (location.state as { from?: { pathname: string } } | null)?.from?.pathname;
@@ -19,6 +19,17 @@ export function LoginPage() {
   const { register, handleSubmit, formState } = useForm<FormValues>({
     resolver: zodResolver(loginSchema)
   });
+
+  useEffect(() => {
+    void refreshMe();
+  }, [refreshMe]);
+
+  if (user) {
+    if (fromPath && fromPath !== "/login") {
+      return <Navigate to={fromPath} replace />;
+    }
+    return <Navigate to={user.role === "SUPERADMIN" ? "/admin" : "/eventos"} replace />;
+  }
 
   return (
     <div className="login-page">

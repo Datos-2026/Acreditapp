@@ -69,7 +69,12 @@ const envSchema = z.object({
    * API key para crear eventos desde otro sistema (`POST /api/v1/external/events`).
    * Header: `X-Api-Key` o `Authorization: Bearer <key>`.
    */
-  EXTERNAL_EVENTS_API_KEY: z.string().min(16).optional()
+  EXTERNAL_EVENTS_API_KEY: z.string().min(16).optional(),
+  /** Solo local: entra sin login y expone el evento `local-dev-only`. Ignorado en production/test. */
+  DEV_SKIP_AUTH: z
+    .string()
+    .optional()
+    .transform((value) => value === "true" || value === "1")
 });
 
 const raw = envSchema.parse(process.env);
@@ -101,6 +106,10 @@ if (raw.GOOGLE_SPREADSHEET_ID?.trim() && !googleServiceAccountCredentials) {
 
 export const env = {
   ...raw,
+  DEV_SKIP_AUTH:
+    Boolean(raw.DEV_SKIP_AUTH) &&
+    process.env.NODE_ENV !== "production" &&
+    process.env.NODE_ENV !== "test",
   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS: googleServiceAccountCredentials,
   CORS_ORIGINS: expandLocalViteOrigins(
     raw.CORS_ORIGIN.split(",")

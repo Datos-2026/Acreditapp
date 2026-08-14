@@ -1,16 +1,21 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(rootDir, "../..");
 const sharedSrc = path.resolve(rootDir, "../../packages/shared/src/index.ts");
 
-/** Dev only: browser talks to Vite; `/api` is proxied to the API (see VITE_DEV_API_PROXY). Docker/production serves `dist` from Express — no Vite server. */
-const devApiTarget = process.env.VITE_DEV_API_PROXY ?? "http://127.0.0.1:4000";
+export default defineConfig(({ mode }) => {
+  const rootEnv = loadEnv(mode, repoRoot, "");
+  const apiPort = rootEnv.API_PORT || process.env.API_PORT || "4000";
+  const webPort = Number(rootEnv.WEB_PORT || process.env.WEB_PORT || 5173);
+  /** Dev only: browser talks to Vite; `/api` is proxied to the API. */
+  const devApiTarget = process.env.VITE_DEV_API_PROXY ?? `http://127.0.0.1:${apiPort}`;
 
-export default defineConfig({
+  return {
   base: "/",
   plugins: [
     react(),
@@ -64,7 +69,7 @@ export default defineConfig({
     }
   },
   server: {
-    port: Number(process.env.WEB_PORT ?? 5173),
+    port: webPort,
     proxy: {
       "/api": {
         target: devApiTarget,
@@ -72,4 +77,5 @@ export default defineConfig({
       }
     }
   }
+  };
 });
