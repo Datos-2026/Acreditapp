@@ -3,6 +3,13 @@ import { api } from "../lib/api";
 import { ImportPreviewTable } from "./ImportPreviewTable";
 import { Icon } from "./Icon";
 
+type ReferentePreview = {
+  name: string;
+  email: string | null;
+  peopleCount: number;
+  missingEmail: boolean;
+};
+
 type PreviewResult = {
   originalFilename: string;
   sheetName: string;
@@ -15,6 +22,30 @@ type PreviewResult = {
   summary: Record<string, unknown>;
   mapping: Record<string, string>;
 };
+
+function asReferentes(summary: Record<string, unknown> | undefined): ReferentePreview[] {
+  return Array.isArray(summary?.referentes) ? (summary.referentes as ReferentePreview[]) : [];
+}
+
+function mergeReferentes(lists: ReferentePreview[][]): ReferentePreview[] {
+  const map = new Map<string, ReferentePreview>();
+  for (const list of lists) {
+    for (const ref of list) {
+      const key = (ref.email ?? "").trim().toLowerCase() || `nombre:${ref.name.trim().toLowerCase()}`;
+      const prev = map.get(key);
+      if (prev) {
+        prev.peopleCount += ref.peopleCount;
+      } else {
+        map.set(key, { ...ref });
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+function sumNumber(previews: PreviewResult[], key: string): number {
+  return previews.reduce((acc, p) => acc + (Number(p.summary[key]) || 0), 0);
+}
 
 type Props = {
   eventId: string;
@@ -37,6 +68,7 @@ function apiErrorMessage(error: unknown, fallback: string): string {
 export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = false }: Props) {
   const isVecinos = eventKind === "vecinos";
   const [result, setResult] = useState<PreviewResult | null>(null);
+  const [filePreviews, setFilePreviews] = useState<PreviewResult[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -45,17 +77,52 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
   const [confirmSummary, setConfirmSummary] = useState<string | null>(null);
 
   const preview = async (): Promise<PreviewResult | null> => {
-    const first = files[0];
-    if (!first) return null;
+    if (files.length === 0) return null;
     setErrorMessage(null);
     setIsPreviewing(true);
     try {
-      const formData = new FormData();
-      formData.append("file", first);
-      const response = await api.post(`/events/${eventId}/imports/preview`, formData);
-      setResult(response.data);
+      const previews: PreviewResult[] = [];
+      const failed: string[] = [];
+      for (const file of files) {
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const response = await api.post<PreviewResult>(`/events/${eventId}/imports/preview`, formData);
+          previews.push(response.data);
+        } catch (error: unknown) {
+          failed.push(`${file.name}: ${apiErrorMessage(error, "no se pudo leer")}`);
+        }
+      }
+      if (previews.length === 0) {
+        setErrorMessage(
+          failed.length > 0
+            ? failed.join(" · ")
+            : "No se pudo previsualizar el archivo. Revisá que tenga columnas válidas."
+        );
+        return null;
+      }
+      const mergedReferentes = mergeReferentes(previews.map((p) => asReferentes(p.summary)));
+      const merged: PreviewResult = {
+        ...previews[0],
+        originalFilename: previews.map((p) => p.originalFilename).join(", "),
+        previewRows: previews.flatMap((p) => p.previewRows),
+        summary: {
+          ...previews[0].summary,
+          validRows: sumNumber(previews, "validRows"),
+          invalidRows: sumNumber(previews, "invalidRows"),
+          duplicateRows: sumNumber(previews, "duplicateRows"),
+          existingInEvent: sumNumber(previews, "existingInEvent"),
+          referentesCount: mergedReferentes.length,
+          referentes: mergedReferentes
+        }
+      };
+      setFilePreviews(previews);
+      setResult(merged);
       setStep(2);
-      return response.data;
+      if (failed.length > 0) {
+        setErrorMessage(`Algunos archivos no se pudieron leer: ${failed.join(" · ")}`);
+      }
+      return merged;
     } catch (error: unknown) {
       setErrorMessage(
         apiErrorMessage(error, "No se pudo previsualizar el archivo. Revisá que tenga columnas válidas.")
@@ -76,20 +143,34 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
       }
       let importedTotal = 0;
       const names: string[] = [];
+      const failed: string[] = [];
       for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
-        const { data: batch } = await api.post<{ importedRows: number }>(
-          `/events/${eventId}/imports/confirm`,
-          formData
-        );
-        importedTotal += batch.importedRows ?? 0;
-        names.push(file.name);
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const { data: batch } = await api.post<{ importedRows: number }>(
+            `/events/${eventId}/imports/confirm`,
+            formData
+          );
+          importedTotal += batch.importedRows ?? 0;
+          names.push(file.name);
+        } catch (error: unknown) {
+          failed.push(`${file.name}: ${apiErrorMessage(error, "no se pudo importar")}`);
+        }
       }
-      setStep(3);
-      setConfirmSummary(
-        `Importación confirmada: ${importedTotal} fila(s) de ${files.length} archivo(s) (${names.join(", ")}). Se sumaron a la lista del evento.`
-      );
+      if (names.length > 0) {
+        setStep(3);
+        setConfirmSummary(
+          `Importación confirmada: ${importedTotal} fila(s) de ${names.length} archivo(s) (${names.join(", ")}). Se sumaron a la lista del evento.`
+        );
+      }
+      if (failed.length > 0) {
+        setErrorMessage(
+          names.length === 0
+            ? `No se pudo confirmar la importación. ${failed.join(" · ")}`
+            : `Se importaron ${names.length} archivo(s), pero fallaron: ${failed.join(" · ")}`
+        );
+      }
     } catch (error: unknown) {
       setErrorMessage(apiErrorMessage(error, "No se pudo confirmar la importación."));
     } finally {
@@ -97,14 +178,7 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
     }
   };
 
-  const referentes = Array.isArray(result?.summary.referentes)
-    ? (result.summary.referentes as Array<{
-        name: string;
-        email: string | null;
-        peopleCount: number;
-        missingEmail: boolean;
-      }>)
-    : [];
+  const referentes = asReferentes(result?.summary);
 
   return (
     <div>
@@ -179,6 +253,7 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
             setFiles(Array.from(event.target.files ?? []));
             setStep(1);
             setResult(null);
+            setFilePreviews([]);
             setErrorMessage(null);
             setConfirmSummary(null);
           }}
@@ -228,22 +303,35 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
         <>
           <div className="card card--flat" style={{ marginTop: "1rem" }}>
             <p style={{ margin: 0, fontWeight: 700, color: "var(--primary-container)" }}>
-              Vista previa de {result.originalFilename}
-              {files.length > 1 ? ` (1 de ${files.length})` : ""} — Válidas:{" "}
-              {String(result.summary.validRows)} · Inválidas: {String(result.summary.invalidRows)} · Duplicados
-              en archivo: {String(result.summary.duplicateRows ?? "—")} · Ya en el evento:{" "}
+              Vista previa de {filePreviews.length > 1 ? `${filePreviews.length} archivos` : result.originalFilename}{" "}
+              — Válidas: {String(result.summary.validRows)} · Inválidas: {String(result.summary.invalidRows)} ·
+              Duplicados en archivo: {String(result.summary.duplicateRows ?? "—")} · Ya en el evento:{" "}
               {String(result.summary.existingInEvent ?? "—")}
             </p>
-            <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-              Al confirmar se importan las filas válidas de todos los archivos seleccionados y se suman a la lista.
-            </p>
+            {filePreviews.length > 1 ? (
+              <ul style={{ margin: "0.75rem 0 0", paddingLeft: "1.25rem", color: "var(--on-surface-variant)" }}>
+                {filePreviews.map((p) => (
+                  <li key={p.originalFilename}>
+                    <strong>{p.originalFilename}</strong> — {String(p.summary.validRows)} válidas ·{" "}
+                    {asReferentes(p.summary).length} referente(s)
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                Al confirmar se importan las filas válidas y se suman a la lista.
+              </p>
+            )}
           </div>
           {referentes.length > 0 ? (
             <div className="card" style={{ marginTop: "1rem" }}>
-              <h3 style={{ marginTop: 0 }}>Referentes detectados ({referentes.length})</h3>
+              <h3 style={{ marginTop: 0 }}>
+                Referentes detectados ({referentes.length}
+                {filePreviews.length > 1 ? ` en ${filePreviews.length} archivos` : ""})
+              </h3>
               <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
                 {referentes.map((ref) => (
-                  <li key={`${ref.email ?? ref.name}-${ref.peopleCount}`}>
+                  <li key={`${ref.email ?? ref.name}`}>
                     <strong>{ref.name}</strong>
                     {ref.email ? ` · ${ref.email}` : " · sin mail"} — {ref.peopleCount} a cargo
                     {ref.missingEmail ? " (agrupado por nombre)" : ""}
