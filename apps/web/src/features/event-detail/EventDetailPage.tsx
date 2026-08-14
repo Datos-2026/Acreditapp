@@ -928,85 +928,78 @@ export function EventDetailPage() {
 
   if (eventQuery.isLoading) return <div className="page-state">Cargando evento...</div>;
 
+  const eventHeaderBody = (
+    <div className="event-summary">
+      <div className="event-title">
+        <p className="label-md event-detail-header__kicker">Evento seleccionado</p>
+        <h1 className="display-sm">{eventQuery.data?.name}</h1>
+        <p className="lead event-detail-header__lead">
+          <span className="event-detail-header__desc">{eventQuery.data?.description ?? "Sin descripción"}</span>
+          {isVecinosEvent ? (
+            <span className="status-pill status-pill--active">Evento Vecinos</span>
+          ) : (
+            <span className="status-pill">Evento GCBA</span>
+          )}
+        </p>
+        {isAccreditationClosed ? (
+          <p className="message-warning event-detail-header__closed">
+            Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar.
+          </p>
+        ) : null}
+        {canManageEvent ? (
+          <div className="row gap event-detail-header__manage">
+            <Link to={editEventPath} className="btn btn-secondary">
+              <Icon name="edit" />
+              Editar evento
+            </Link>
+            {isAccreditationClosed ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowReopenEvent(true)}
+                disabled={setEventStatusMutation.isPending}
+              >
+                <Icon name="lock_open" />
+                Reabrir acreditación
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ color: "var(--error)" }}
+                onClick={() => setShowCloseEvent(true)}
+                disabled={setEventStatusMutation.isPending}
+              >
+                <Icon name="lock" />
+                CERRAR ACREDITACIÓN
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ color: "var(--error)" }}
+              onClick={() => setShowDeleteEvent(true)}
+            >
+              <Icon name="delete" />
+              Eliminar evento
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div className="kpi-inline metrics">
+        {fastKpis.map((item) => (
+          <div key={item.label} className="kpi-chip metric-card">
+            <p className="kpi-chip__label metric-label">{item.label}</p>
+            <p className="kpi-chip__value metric-value">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <section className={`event-operation-page${tab === "Acreditar" ? " event-operation-page--terminal" : ""}`}>
-      <header className={`card event-detail-header${tab === "Acreditar" ? " event-detail-header--compact" : ""}`}>
-        <div className="event-summary">
-          <div className="event-title">
-            <p className="label-md" style={{ marginBottom: "0.35rem" }}>
-              Evento seleccionado
-            </p>
-            <h1 className="display-sm">{eventQuery.data?.name}</h1>
-            <p className="lead">
-              {eventQuery.data?.description ?? "Sin descripción"}
-              {isVecinosEvent ? (
-                <span className="status-pill status-pill--active" style={{ marginLeft: "0.75rem", verticalAlign: "middle" }}>
-                  Evento Vecinos
-                </span>
-              ) : (
-                <span className="status-pill" style={{ marginLeft: "0.75rem", verticalAlign: "middle" }}>
-                  Evento GCBA
-                </span>
-              )}
-            </p>
-            {isAccreditationClosed ? (
-              <p
-                className="message-warning"
-                style={{ marginTop: "0.75rem", marginBottom: 0, fontWeight: 700 }}
-              >
-                Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar.
-              </p>
-            ) : null}
-            {canManageEvent ? (
-              <div className="row gap event-detail-header__manage" style={{ marginTop: "1rem", flexWrap: "wrap" }}>
-                <Link to={editEventPath} className="btn btn-secondary">
-                  <Icon name="edit" />
-                  Editar evento
-                </Link>
-                {isAccreditationClosed ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowReopenEvent(true)}
-                    disabled={setEventStatusMutation.isPending}
-                  >
-                    <Icon name="lock_open" />
-                    Reabrir acreditación
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ color: "var(--error)" }}
-                    onClick={() => setShowCloseEvent(true)}
-                    disabled={setEventStatusMutation.isPending}
-                  >
-                    <Icon name="lock" />
-                    CERRAR ACREDITACIÓN
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ color: "var(--error)" }}
-                  onClick={() => setShowDeleteEvent(true)}
-                >
-                  <Icon name="delete" />
-                  Eliminar evento
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <div className="kpi-inline metrics">
-            {fastKpis.map((item) => (
-              <div key={item.label} className="kpi-chip metric-card">
-                <p className="kpi-chip__label metric-label">{item.label}</p>
-                <p className="kpi-chip__value metric-value">{item.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </header>
+      {tab !== "Acreditar" ? <header className="card event-detail-header">{eventHeaderBody}</header> : null}
       {uiNotice ? (
         <p className="message-success" style={{ marginBottom: "1rem" }}>
           {uiNotice}
@@ -1110,6 +1103,7 @@ export function EventDetailPage() {
                 : "Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo)."}
             </p>
           </section>
+          <header className="card event-detail-header event-detail-header--rail">{eventHeaderBody}</header>
           {enableMesas ? (
             <VecinoMesasPanel
               eventId={id}
