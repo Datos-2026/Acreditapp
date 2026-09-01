@@ -66,6 +66,11 @@ const envSchema = z.object({
   /** ID del libro de Google Sheets legado (una pestaña por evento). Ya no es obligatorio. */
   GOOGLE_SPREADSHEET_ID: z.string().optional(),
   /**
+   * Carpeta de Drive (idealmente Shared Drive) donde crear un archivo por evento.
+   * La cuenta de servicio no puede crear archivos en “Mi unidad” (cuota 0).
+   */
+  GOOGLE_DRIVE_FOLDER_ID: z.string().optional(),
+  /**
    * Opcional. Mails extra (coma-separados) a los que también se da rol editor.
    * Por defecto el archivo queda “cualquiera con el enlace puede editar”.
    */

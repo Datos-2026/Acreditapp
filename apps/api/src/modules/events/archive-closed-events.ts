@@ -5,7 +5,7 @@ import {
   buildGoogleSpreadsheetUrl,
   dumpEventPeopleToSpreadsheet,
   ensureEventGoogleSheet,
-  EVENT_BASE_SHEET_NAME,
+  formatGoogleSheetsError,
   isGoogleSheetsConfigured
 } from "./google-sheets-sync";
 
@@ -46,7 +46,12 @@ async function dumpEventBase(event: {
       "SHEETS_UNAVAILABLE"
     );
   }
-  const ref = await ensureEventGoogleSheet(event);
+  let ref;
+  try {
+    ref = await ensureEventGoogleSheet(event);
+  } catch (err) {
+    throw new ArchiveEventToSheetsError(formatGoogleSheetsError(err), "SHEETS_UNAVAILABLE");
+  }
   if (!ref) {
     throw new ArchiveEventToSheetsError(
       "No se pudo crear el archivo de Google Sheets del evento.",
@@ -58,11 +63,15 @@ async function dumpEventBase(event: {
     include: { person: true, accreditedByUser: { select: { id: true, name: true } } },
     orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
   });
-  await dumpEventPeopleToSpreadsheet(ref.spreadsheetId, EVENT_BASE_SHEET_NAME, people);
-  return { spreadsheetId: ref.spreadsheetId, sheetName: EVENT_BASE_SHEET_NAME };
+  try {
+    await dumpEventPeopleToSpreadsheet(ref.spreadsheetId, ref.sheetName, people);
+  } catch (err) {
+    throw new ArchiveEventToSheetsError(formatGoogleSheetsError(err), "SHEETS_UNAVAILABLE");
+  }
+  return { spreadsheetId: ref.spreadsheetId, sheetName: ref.sheetName };
 }
 
-async function purgeEventOperationalData(eventId: string, now: Date): Promise<void> {
+async function purgeEventOperationalData(eventId: string, now: Date, sheetName: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.eventPerson.updateMany({
       where: { eventId },
@@ -77,7 +86,7 @@ async function purgeEventOperationalData(eventId: string, now: Date): Promise<vo
       data: {
         status: EventStatus.archived,
         archivedToSheetsAt: now,
-        googleSheetName: EVENT_BASE_SHEET_NAME
+        googleSheetName: sheetName
       }
     });
   });
@@ -111,7 +120,7 @@ export async function archiveEventToSheets(
     where: { id: event.id },
     data: { googleSpreadsheetId: ref.spreadsheetId, googleSheetName: ref.sheetName }
   });
-  await purgeEventOperationalData(event.id, now);
+  await purgeEventOperationalData(event.id, now, ref.sheetName);
   logger.info({ eventId: event.id, spreadsheetId: ref.spreadsheetId }, "Evento archivado a Google Sheets");
   return {
     spreadsheetId: ref.spreadsheetId,

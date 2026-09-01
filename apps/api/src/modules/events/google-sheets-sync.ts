@@ -51,7 +51,7 @@ const LEGACY_UNPROVISIONED_SHEET_NAME = "Acreditados";
 
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/drive.file"
+  "https://www.googleapis.com/auth/drive"
 ];
 
 const lastSheetErrors = new Map<string, string>();
@@ -113,6 +113,9 @@ export function formatGoogleSheetsError(err: unknown): string {
   const msg = apiErr?.message ?? raw;
   const status = apiErr?.status ?? "";
   const email = env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS?.client_email;
+  if (/storageQuotaExceeded|quota has been exceeded/i.test(msg)) {
+    return "La cuenta de Google no tiene espacio para crear archivos. Configurá GOOGLE_DRIVE_FOLDER_ID (Shared Drive) o GOOGLE_SPREADSHEET_ID para usar una pestaña en el libro existente.";
+  }
   if (status === "PERMISSION_DENIED" || /does not have permission|permission denied/i.test(msg)) {
     return email
       ? `Sin permiso en Google. Revisá la cuenta de servicio (${email}) y que el archivo permita “cualquiera con el enlace”.`
@@ -246,26 +249,91 @@ export type EventSpreadsheetRef = {
   sheetName: string;
 };
 
-/**
- * Crea un archivo de Google Sheets propio del evento (hoja Base) y lo comparte.
- */
-export async function createEventSpreadsheetFile(eventName: string): Promise<EventSpreadsheetRef | null> {
+export function uniqueSheetName(desired: string, existing: Set<string>): string {
+  const base = formatEventSheetName(desired) || "Evento";
+  if (!existing.has(base)) return base;
+  for (let i = 2; i < 100; i++) {
+    const suffix = ` ${i}`;
+    const candidate = sanitizeSheetTitle(base.slice(0, SHEET_TITLE_MAX - suffix.length) + suffix);
+    if (!existing.has(candidate)) return candidate;
+  }
+  return sanitizeSheetTitle(`${base.slice(0, 20)} ${Date.now().toString(36)}`);
+}
+
+async function createTabInLegacyWorkbook(eventName: string, spreadsheetId: string): Promise<EventSpreadsheetRef> {
   const sheets = getSheetsClient();
-  if (!sheets) return null;
-  const title = eventName.trim() || "Evento";
-  const created = await sheets.spreadsheets.create({
-    requestBody: {
-      properties: { title: title.slice(0, 200) },
-      sheets: [{ properties: { title: EVENT_BASE_SHEET_NAME } }]
-    },
-    fields: "spreadsheetId"
-  });
-  const spreadsheetId = created.data.spreadsheetId;
-  if (!spreadsheetId) return null;
-  await writeSheetHeader(sheets, spreadsheetId, EVENT_BASE_SHEET_NAME);
+  if (!sheets) {
+    throw new Error("Google Sheets no configurado");
+  }
+  const titles = await listSheetTitles(sheets, spreadsheetId);
+  const sheetName = uniqueSheetName(eventName, titles);
+  await ensureSheetTitle(sheets, spreadsheetId, sheetName);
+  await writeSheetHeader(sheets, spreadsheetId, sheetName, ARCHIVE_SHEET_HEADER);
+  logger.info({ spreadsheetId, sheetName, eventName }, "Pestaña creada en el libro de Google Sheets existente");
+  return { spreadsheetId, sheetName };
+}
+
+async function createDedicatedSpreadsheet(title: string): Promise<EventSpreadsheetRef> {
+  const sheets = getSheetsClient();
+  if (!sheets) {
+    throw new Error("Google Sheets no configurado");
+  }
+  const folderId = env.GOOGLE_DRIVE_FOLDER_ID?.trim();
+  const drive = getDriveClient();
+  let spreadsheetId: string | null = null;
+
+  if (folderId && drive) {
+    const file = await drive.files.create({
+      requestBody: {
+        name: title.slice(0, 200),
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        parents: [folderId]
+      },
+      supportsAllDrives: true,
+      fields: "id"
+    });
+    spreadsheetId = file.data.id ?? null;
+  } else {
+    const created = await sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title: title.slice(0, 200) },
+        sheets: [{ properties: { title: EVENT_BASE_SHEET_NAME } }]
+      },
+      fields: "spreadsheetId"
+    });
+    spreadsheetId = created.data.spreadsheetId ?? null;
+  }
+
+  if (!spreadsheetId) {
+    throw new Error("Google no devolvió ID de spreadsheet");
+  }
+  await ensureSheetTitle(sheets, spreadsheetId, EVENT_BASE_SHEET_NAME);
+  await writeSheetHeader(sheets, spreadsheetId, EVENT_BASE_SHEET_NAME, ARCHIVE_SHEET_HEADER);
   await shareSpreadsheet(spreadsheetId);
   logger.info({ spreadsheetId, eventName: title }, "Archivo de Google Sheets creado para el evento");
   return { spreadsheetId, sheetName: EVENT_BASE_SHEET_NAME };
+}
+
+/**
+ * Crea un archivo propio del evento. Si la cuenta de servicio no puede crear archivos
+ * (cuota 0 típica), usa una pestaña en GOOGLE_SPREADSHEET_ID.
+ */
+export async function createEventSpreadsheetFile(eventName: string): Promise<EventSpreadsheetRef | null> {
+  if (!isGoogleSheetsConfigured()) return null;
+  const title = eventName.trim() || "Evento";
+  try {
+    return await createDedicatedSpreadsheet(title);
+  } catch (err) {
+    const legacyId = env.GOOGLE_SPREADSHEET_ID?.trim();
+    if (!legacyId) {
+      throw err;
+    }
+    logger.warn(
+      { err, eventName: title },
+      "No se pudo crear un archivo propio; se usa una pestaña en GOOGLE_SPREADSHEET_ID"
+    );
+    return createTabInLegacyWorkbook(title, legacyId);
+  }
 }
 
 /** @deprecated Crear archivo con createEventSpreadsheetFile */
@@ -294,7 +362,10 @@ export async function ensureEventGoogleSheet(
   if (storedId) {
     try {
       await ensureSheetTitle(sheets, storedId, storedName);
-      await shareSpreadsheet(storedId);
+      const legacyId = env.GOOGLE_SPREADSHEET_ID?.trim();
+      if (legacyId && storedId !== legacyId) {
+        await shareSpreadsheet(storedId);
+      }
       return { spreadsheetId: storedId, sheetName: storedName };
     } catch (err) {
       logger.warn(
@@ -408,13 +479,17 @@ export async function dumpEventPeopleToSpreadsheet(
     spreadsheetId,
     range: `'${escaped}'`
   });
-  const values = [[...ARCHIVE_SHEET_HEADER], ...rows.map((row) => buildArchiveSheetRow(row))];
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `'${escaped}'!A1`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values }
-  });
+  const values = [[...ARCHIVE_SHEET_HEADER], ...rows.map((row) => buildArchiveSheetRow(row).map((cell) => String(cell ?? "")))];
+  const chunkSize = 4000;
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${escaped}'!A${i + 1}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: chunk }
+    });
+  }
 }
 
 export async function appendVecinoAccreditationToSheet(

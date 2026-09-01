@@ -34,7 +34,8 @@ app.use(
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         "font-src": ["'self'", "https://fonts.gstatic.com"],
         "worker-src": ["'self'"],
-        "manifest-src": ["'self'"]
+        "manifest-src": ["'self'"],
+        "script-src": ["'self'", "https://static.cloudflareinsights.com"]
       }
     }
   })

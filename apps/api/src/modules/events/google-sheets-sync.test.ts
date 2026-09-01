@@ -5,7 +5,8 @@ import {
   formatVecinoEventSheetName,
   sanitizeSheetTitle,
   buildArchiveSheetRow,
-  buildGoogleSpreadsheetUrl
+  buildGoogleSpreadsheetUrl,
+  uniqueSheetName
 } from "./google-sheets-sync";
 
 describe("formatVecinoEventSheetDate", () => {
@@ -29,6 +30,16 @@ describe("formatEventSheetName", () => {
 
   it("elimina caracteres inválidos de Excel", () => {
     expect(sanitizeSheetTitle("Evento [test]")).toBe("Evento test");
+  });
+});
+
+describe("uniqueSheetName", () => {
+  it("usa el nombre si está libre", () => {
+    expect(uniqueSheetName("Encuentro", new Set(["Otra"]))).toBe("Encuentro");
+  });
+
+  it("agrega sufijo si el nombre ya existe", () => {
+    expect(uniqueSheetName("Encuentro", new Set(["Encuentro"]))).toBe("Encuentro 2");
   });
 });
 
