@@ -14,6 +14,7 @@ import { createAuditLog } from "../../lib/audit";
 import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { ensureEventAccess } from "./event-access";
+import { ArchiveEventToSheetsError, archiveEventToSheets } from "./archive-closed-events";
 import {
   assertEventKindForRole,
   assertRoleCanCreateEventKind,
@@ -1043,6 +1044,35 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       next(new AppError("Ya existe un evento con ese nombre o identificador", 409));
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post("/:id/archive-to-sheets", requireRoles("SUPERADMIN"), async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    const result = await archiveEventToSheets(req.params.id);
+    const event = await prisma.event.findUniqueOrThrow({ where: { id: req.params.id } });
+    await createAuditLog({
+      req,
+      action: "event.archiveToSheets",
+      entityType: "event",
+      entityId: req.params.id,
+      metadata: { spreadsheetId: result.spreadsheetId }
+    });
+    res.json({
+      ...event,
+      totalPeople: 0,
+      accreditedPeople: 0,
+      ...googleSheetsResponseFields(event),
+      googleSheetUrl: result.googleSheetUrl
+    });
+  } catch (error) {
+    if (error instanceof ArchiveEventToSheetsError) {
+      const status = error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_ARCHIVED" ? 409 : 503;
+      next(new AppError(error.message, status));
       return;
     }
     next(error);

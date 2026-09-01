@@ -305,10 +305,12 @@ export function EventDetailPage() {
   const [referenteSuccess, setReferenteSuccess] = useState<{ name: string; accreditedCount: number } | null>(null);
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
   const [uiNotice, setUiNotice] = useState<string | null>(null);
+  const [uiNoticeIsError, setUiNoticeIsError] = useState(false);
   const [liveSearchInput, setLiveSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [searchedOnce, setSearchedOnce] = useState(false);
   const [showDeleteEvent, setShowDeleteEvent] = useState(false);
+  const [showArchiveToSheets, setShowArchiveToSheets] = useState(false);
   const [deletePersonTarget, setDeletePersonTarget] = useState<{
     id: string;
     label: string;
@@ -922,8 +924,37 @@ export function EventDetailPage() {
     }
   });
 
+  const archiveToSheetsMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/events/${id}/archive-to-sheets`);
+      return data as { googleSheetUrl?: string | null };
+    },
+    onSuccess: (data) => {
+      setShowArchiveToSheets(false);
+      setUiNoticeIsError(false);
+      setUiNotice(
+        data.googleSheetUrl
+          ? "Nómina exportada a Google Sheets y borrada del sistema."
+          : "Nómina borrada del sistema. No se obtuvo el link de Google Sheets."
+      );
+      void queryClient.invalidateQueries({ queryKey: ["event", id] });
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+      void queryClient.invalidateQueries({ queryKey: ["people", id] });
+      void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+    },
+    onError: (error: unknown) => {
+      setShowArchiveToSheets(false);
+      const message =
+        (error as { response?: { data?: { message?: string } } }).response?.data?.message ??
+        "No se pudo exportar a Google Sheets. La nómina no se borró.";
+      setUiNoticeIsError(true);
+      setUiNotice(message);
+    }
+  });
+
   const eventStatus = (eventQuery.data?.status ?? "draft") as "draft" | "active" | "closed" | "archived";
   const isAccreditationClosed = eventStatus === "closed" || eventStatus === "archived";
+  const canForceArchiveToSheets = user?.role === "SUPERADMIN" && !eventQuery.data?.archivedToSheetsAt;
 
   const setEventStatusMutation = useMutation({
     mutationFn: async (status: "active" | "closed") => {
@@ -933,6 +964,7 @@ export function EventDetailPage() {
     onSuccess: (_data, status) => {
       setShowCloseEvent(false);
       setShowReopenEvent(false);
+      setUiNoticeIsError(false);
       setUiNotice(
         status === "closed"
           ? "Acreditación cerrada. Las personas ya no pueden ser acreditadas."
@@ -1004,6 +1036,20 @@ export function EventDetailPage() {
               <Icon name="delete" />
               Eliminar evento
             </button>
+            {canForceArchiveToSheets ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ color: "var(--error)" }}
+                onClick={() => setShowArchiveToSheets(true)}
+                disabled={archiveToSheetsMutation.isPending}
+              >
+                <Icon name="cloud_upload" />
+                {archiveToSheetsMutation.isPending
+                  ? "Exportando…"
+                  : "Exportar a Google Sheets y borrar del sistema"}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1022,7 +1068,7 @@ export function EventDetailPage() {
     <section className={`event-operation-page${tab === "Acreditar" && !dataOffloaded ? " event-operation-page--terminal" : ""}`}>
       {tab !== "Acreditar" ? <header className="card event-detail-header">{eventHeaderBody}</header> : null}
       {uiNotice ? (
-        <p className="message-success" style={{ marginBottom: "1rem" }}>
+        <p className={uiNoticeIsError ? "message-error" : "message-success"} style={{ marginBottom: "1rem" }}>
           {uiNotice}
         </p>
       ) : null}
@@ -2498,6 +2544,19 @@ export function EventDetailPage() {
         </RoleGuard>
       ) : null}
 
+      <ConfirmTypeDialog
+        open={showArchiveToSheets}
+        title="Exportar a Google Sheets y borrar del sistema"
+        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a un archivo de Google Sheets (cualquiera con el enlace puede editar). Después se borran personas, importaciones y referentes de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
+        requiredText={eventQuery.data?.name ?? ""}
+        requiredTextLabel={eventQuery.data?.name ?? ""}
+        onCancel={() => setShowArchiveToSheets(false)}
+        onConfirm={() => {
+          if (!archiveToSheetsMutation.isPending) archiveToSheetsMutation.mutate();
+        }}
+        confirmLabel={archiveToSheetsMutation.isPending ? "Exportando…" : "Exportar y borrar"}
+        danger
+      />
       <ConfirmTypeDialog
         open={showDeleteEvent}
         title="Eliminar evento"

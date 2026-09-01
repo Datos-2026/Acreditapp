@@ -2,11 +2,21 @@ import { EventStatus } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import {
+  buildGoogleSpreadsheetUrl,
   dumpEventPeopleToSpreadsheet,
   ensureEventGoogleSheet,
   EVENT_BASE_SHEET_NAME,
   isGoogleSheetsConfigured
 } from "./google-sheets-sync";
+
+export class ArchiveEventToSheetsError extends Error {
+  code: "NOT_FOUND" | "ALREADY_ARCHIVED" | "SHEETS_UNAVAILABLE";
+
+  constructor(message: string, code: ArchiveEventToSheetsError["code"]) {
+    super(message);
+    this.code = code;
+  }
+}
 
 export const ARCHIVE_CLOSED_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -31,11 +41,17 @@ async function dumpEventBase(event: {
   googleSpreadsheetId: string | null;
 }): Promise<{ spreadsheetId: string; sheetName: string }> {
   if (!isGoogleSheetsConfigured()) {
-    throw new Error("Google Sheets no configurado: no se archiva sin volcar la base");
+    throw new ArchiveEventToSheetsError(
+      "Google Sheets no está configurado: no se puede volcar ni borrar la nómina.",
+      "SHEETS_UNAVAILABLE"
+    );
   }
   const ref = await ensureEventGoogleSheet(event);
   if (!ref) {
-    throw new Error("No se pudo crear el archivo de Google Sheets del evento");
+    throw new ArchiveEventToSheetsError(
+      "No se pudo crear el archivo de Google Sheets del evento.",
+      "SHEETS_UNAVAILABLE"
+    );
   }
   const people = await prisma.eventPerson.findMany({
     where: { eventId: event.id },
@@ -67,6 +83,42 @@ async function purgeEventOperationalData(eventId: string, now: Date): Promise<vo
   });
 }
 
+export async function archiveEventToSheets(
+  eventId: string,
+  now: Date = new Date()
+): Promise<{ spreadsheetId: string; googleSheetUrl: string | null }> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: {
+      id: true,
+      name: true,
+      googleSheetName: true,
+      googleSpreadsheetId: true,
+      archivedToSheetsAt: true
+    }
+  });
+  if (!event) {
+    throw new ArchiveEventToSheetsError("Evento no encontrado", "NOT_FOUND");
+  }
+  if (event.archivedToSheetsAt) {
+    throw new ArchiveEventToSheetsError(
+      "Este evento ya fue volcado a Google Sheets y la nómina operativa se borró.",
+      "ALREADY_ARCHIVED"
+    );
+  }
+  const ref = await dumpEventBase(event);
+  await prisma.event.update({
+    where: { id: event.id },
+    data: { googleSpreadsheetId: ref.spreadsheetId, googleSheetName: ref.sheetName }
+  });
+  await purgeEventOperationalData(event.id, now);
+  logger.info({ eventId: event.id, spreadsheetId: ref.spreadsheetId }, "Evento archivado a Google Sheets");
+  return {
+    spreadsheetId: ref.spreadsheetId,
+    googleSheetUrl: buildGoogleSpreadsheetUrl(ref.spreadsheetId)
+  };
+}
+
 export async function archiveClosedEventsDue(now: Date = new Date()): Promise<{ archived: number; failed: number }> {
   const cutoff = new Date(now.getTime() - ARCHIVE_CLOSED_AFTER_MS);
   const events = await prisma.event.findMany({
@@ -75,26 +127,15 @@ export async function archiveClosedEventsDue(now: Date = new Date()): Promise<{ 
       archivedToSheetsAt: null,
       closedAt: { lte: cutoff }
     },
-    select: {
-      id: true,
-      name: true,
-      googleSheetName: true,
-      googleSpreadsheetId: true
-    }
+    select: { id: true }
   });
 
   let archived = 0;
   let failed = 0;
   for (const event of events) {
     try {
-      const ref = await dumpEventBase(event);
-      await prisma.event.update({
-        where: { id: event.id },
-        data: { googleSpreadsheetId: ref.spreadsheetId, googleSheetName: ref.sheetName }
-      });
-      await purgeEventOperationalData(event.id, now);
+      await archiveEventToSheets(event.id, now);
       archived += 1;
-      logger.info({ eventId: event.id, spreadsheetId: ref.spreadsheetId }, "Evento archivado a Google Sheets");
     } catch (err) {
       failed += 1;
       logger.error({ err, eventId: event.id }, "No se pudo archivar el evento a Google Sheets");
