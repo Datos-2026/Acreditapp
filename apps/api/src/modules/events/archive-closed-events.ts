@@ -14,8 +14,19 @@ export class ArchiveEventToSheetsError extends Error {
 
   constructor(message: string, code: ArchiveEventToSheetsError["code"]) {
     super(message);
+    this.name = "ArchiveEventToSheetsError";
     this.code = code;
   }
+}
+
+export function isArchiveEventToSheetsError(err: unknown): err is ArchiveEventToSheetsError {
+  return (
+    err instanceof ArchiveEventToSheetsError ||
+    (typeof err === "object" &&
+      err !== null &&
+      (err as Error).name === "ArchiveEventToSheetsError" &&
+      ["NOT_FOUND", "ALREADY_ARCHIVED", "SHEETS_UNAVAILABLE"].includes(String((err as { code?: string }).code)))
+  );
 }
 
 export const ARCHIVE_CLOSED_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -72,24 +83,31 @@ async function dumpEventBase(event: {
 }
 
 async function purgeEventOperationalData(eventId: string, now: Date, sheetName: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.eventPerson.updateMany({
-      where: { eventId },
-      data: { referenteId: null }
-    });
-    await tx.eventReferente.deleteMany({ where: { eventId } });
-    await tx.eventPerson.deleteMany({ where: { eventId } });
-    await tx.importBatch.deleteMany({ where: { eventId } });
-    await tx.eventReportAiCache.deleteMany({ where: { eventId } });
-    await tx.event.update({
-      where: { id: eventId },
-      data: {
-        status: EventStatus.archived,
-        archivedToSheetsAt: now,
-        googleSheetName: sheetName
-      }
-    });
-  });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.eventPerson.updateMany({
+        where: { eventId },
+        data: { referenteId: null }
+      });
+      await tx.eventReferente.updateMany({
+        where: { eventId },
+        data: { eventPersonId: null }
+      });
+      await tx.eventReferente.deleteMany({ where: { eventId } });
+      await tx.eventPerson.deleteMany({ where: { eventId } });
+      await tx.importBatch.deleteMany({ where: { eventId } });
+      await tx.eventReportAiCache.deleteMany({ where: { eventId } });
+      await tx.event.update({
+        where: { id: eventId },
+        data: {
+          status: EventStatus.archived,
+          archivedToSheetsAt: now,
+          googleSheetName: sheetName
+        }
+      });
+    },
+    { timeout: 120_000, maxWait: 20_000 }
+  );
 }
 
 export async function archiveEventToSheets(
@@ -116,11 +134,19 @@ export async function archiveEventToSheets(
     );
   }
   const ref = await dumpEventBase(event);
-  await prisma.event.update({
-    where: { id: event.id },
-    data: { googleSpreadsheetId: ref.spreadsheetId, googleSheetName: ref.sheetName }
-  });
-  await purgeEventOperationalData(event.id, now, ref.sheetName);
+  try {
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { googleSpreadsheetId: ref.spreadsheetId, googleSheetName: ref.sheetName }
+    });
+    await purgeEventOperationalData(event.id, now, ref.sheetName);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new ArchiveEventToSheetsError(
+      `La nómina se volcó a Google Sheets, pero no se pudo borrar de la app: ${detail.slice(0, 400)}`,
+      "SHEETS_UNAVAILABLE"
+    );
+  }
   logger.info({ eventId: event.id, spreadsheetId: ref.spreadsheetId }, "Evento archivado a Google Sheets");
   return {
     spreadsheetId: ref.spreadsheetId,

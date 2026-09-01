@@ -14,7 +14,7 @@ import { createAuditLog } from "../../lib/audit";
 import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { ensureEventAccess } from "./event-access";
-import { ArchiveEventToSheetsError, archiveEventToSheets } from "./archive-closed-events";
+import { archiveEventToSheets, isArchiveEventToSheetsError } from "./archive-closed-events";
 import {
   assertEventKindForRole,
   assertRoleCanCreateEventKind,
@@ -1055,13 +1055,17 @@ router.post("/:id/archive-to-sheets", requireRoles("SUPERADMIN"), async (req, re
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const result = await archiveEventToSheets(req.params.id);
     const event = await prisma.event.findUniqueOrThrow({ where: { id: req.params.id } });
-    await createAuditLog({
-      req,
-      action: "event.archiveToSheets",
-      entityType: "event",
-      entityId: req.params.id,
-      metadata: { spreadsheetId: result.spreadsheetId }
-    });
+    try {
+      await createAuditLog({
+        req,
+        action: "event.archiveToSheets",
+        entityType: "event",
+        entityId: req.params.id,
+        metadata: { spreadsheetId: result.spreadsheetId }
+      });
+    } catch (auditErr) {
+      logger.warn({ err: auditErr, eventId: req.params.id }, "Audit log de archivo a Sheets falló");
+    }
     res.json({
       ...event,
       totalPeople: 0,
@@ -1070,12 +1074,14 @@ router.post("/:id/archive-to-sheets", requireRoles("SUPERADMIN"), async (req, re
       googleSheetUrl: result.googleSheetUrl
     });
   } catch (error) {
-    if (error instanceof ArchiveEventToSheetsError) {
+    logger.error({ err: error, eventId: req.params.id }, "POST /events/:id/archive-to-sheets");
+    if (isArchiveEventToSheetsError(error)) {
       const status = error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_ARCHIVED" ? 409 : 503;
       next(new AppError(error.message, status));
       return;
     }
-    next(error);
+    const raw = error instanceof Error ? error.message : String(error);
+    next(new AppError(raw.slice(0, 500) || "No se pudo exportar a Google Sheets.", 503));
   }
 });
 
