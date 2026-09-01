@@ -80,6 +80,11 @@ const envSchema = z.object({
    * Header: `X-Api-Key` o `Authorization: Bearer <key>`.
    */
   EXTERNAL_EVENTS_API_KEY: z.string().min(16).optional(),
+  /** Job que a los 30 días de cerrado vuelca a Sheets y borra la nómina. Off por defecto. */
+  ARCHIVE_CLOSED_EVENTS: z
+    .string()
+    .optional()
+    .transform((value) => value === "true" || value === "1"),
   /** Solo local: entra sin login y expone el evento `local-dev-only`. Ignorado en production/test. */
   DEV_SKIP_AUTH: z
     .string()

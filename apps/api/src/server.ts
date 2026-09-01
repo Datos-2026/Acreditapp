@@ -26,6 +26,10 @@ app.listen(env.API_PORT, host, () => {
       logger.error({ err }, "No se pudo preparar el usuario/evento local de skip-auth");
     });
   }
-  runArchiveJob("startup");
-  setInterval(() => runArchiveJob("interval"), ARCHIVE_JOB_MS);
+  if (env.ARCHIVE_CLOSED_EVENTS) {
+    runArchiveJob("startup");
+    setInterval(() => runArchiveJob("interval"), ARCHIVE_JOB_MS);
+  } else {
+    logger.info("Job de archivo automático a Sheets desactivado (ARCHIVE_CLOSED_EVENTS)");
+  }
 });
