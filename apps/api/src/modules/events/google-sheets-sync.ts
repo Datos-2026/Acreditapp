@@ -102,7 +102,7 @@ export function isGoogleSheetsConfigured(): boolean {
 
 export function buildGoogleSpreadsheetUrl(spreadsheetId?: string | null): string | null {
   const id = spreadsheetId?.trim() || null;
-  if (!id) return null;
+  if (!id || id === "ACREDITADOS") return null;
   return `https://docs.google.com/spreadsheets/d/${id}/edit`;
 }
 

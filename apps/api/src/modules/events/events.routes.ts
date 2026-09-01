@@ -39,17 +39,14 @@ import {
   mesaLabel,
   parseMesaNumber
 } from "./mesa-assignment";
+import { buildGoogleSpreadsheetUrl, getVecinoSheetError, isUnprovisionedSheetName, recordVecinoSheetError } from "./google-sheets-sync";
 import {
-  appendVecinoAccreditationToSheet,
-  buildGoogleSpreadsheetUrl,
-  createEventSpreadsheetFile,
-  ensureEventGoogleSheet,
-  formatGoogleSheetsError,
-  getVecinoSheetError,
-  isGoogleSheetsConfigured,
-  isUnprovisionedSheetName,
-  recordVecinoSheetError
-} from "./google-sheets-sync";
+  appendAccreditationToAcreditadosMysql,
+  ensureEventAcreditadosTable,
+  formatMysqlError,
+  isAcreditadosMysqlConfigured,
+  isValidAcreditadosTableName
+} from "./acreditados-mysql";
 
 const router = Router();
 router.use(requireAuth);
@@ -299,21 +296,8 @@ router.post(
     const kind = (req.body.kind ?? "gcba") as EventKind;
     assertRoleCanCreateEventKind(req.auth!.role, kind);
 
-    let googleSheetName: string | null = null;
-    let googleSpreadsheetId: string | null = null;
     const enableGoogleSheets = Boolean(req.body.enableGoogleSheets);
     const initialStatus = req.body.status ?? EventStatus.draft;
-    if (enableGoogleSheets && isGoogleSheetsConfigured()) {
-      try {
-        const created = await createEventSpreadsheetFile(req.body.name);
-        if (created) {
-          googleSheetName = created.sheetName;
-          googleSpreadsheetId = created.spreadsheetId;
-        }
-      } catch (err) {
-        logger.warn({ err, eventName: req.body.name }, "No se pudo crear archivo de Google Sheets al crear evento");
-      }
-    }
 
     const features = normalizeEventFeatures({
       enableMesas: req.body.enableMesas,
@@ -332,13 +316,22 @@ router.post(
         status: initialStatus,
         kind,
         slug: slugFromEventName(req.body.name),
-        googleSheetName,
-        googleSpreadsheetId,
+        googleSheetName: null,
+        googleSpreadsheetId: null,
         enableGoogleSheets,
         closedAt: initialStatus === EventStatus.closed ? new Date() : null,
         ...features
       }
     });
+    if (enableGoogleSheets && isAcreditadosMysqlConfigured()) {
+      try {
+        const created = await ensureEventAcreditadosTable(event);
+        event.googleSheetName = created.tableName;
+        event.googleSpreadsheetId = created.spreadsheetId;
+      } catch (err) {
+        logger.warn({ err, eventId: event.id }, "No se pudo crear la tabla MySQL ACREDITADOS al crear evento");
+      }
+    }
     if (req.auth!.role === UserRole.ADMIN_VECINOS || req.auth!.role === UserRole.ADMIN_EVENTO) {
       await prisma.eventUser.create({
         data: { eventId: event.id, userId: req.auth!.id }
@@ -644,7 +637,7 @@ router.get("/:id/people/breakdown", async (req, res, next) => {
   }
 });
 
-/** Estado de Google Sheets (eventos con enableGoogleSheets). */
+/** Estado del volcado a MySQL ACREDITADOS (toggle enableGoogleSheets). */
 router.get("/:id/sheets/stats", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
@@ -653,12 +646,12 @@ router.get("/:id/sheets/stats", async (req, res, next) => {
       select: { enableGoogleSheets: true, googleSheetName: true, googleSpreadsheetId: true, archivedToSheetsAt: true, status: true }
     });
     if (!event.enableGoogleSheets && !event.googleSpreadsheetId) {
-      res.status(400).json({ message: "Este evento no tiene Google Sheets habilitado" });
+      res.status(400).json({ message: "Este evento no tiene volcado a MySQL ACREDITADOS habilitado" });
       return;
     }
     res.json({
-      sheetsConfigured: isGoogleSheetsConfigured(),
-      googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
+      sheetsConfigured: isAcreditadosMysqlConfigured(),
+      googleSheetsEnabled: googleSheetsActive(event) && isAcreditadosMysqlConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
       googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
       lastSheetError: getVecinoSheetError(req.params.id)
@@ -688,8 +681,8 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
         totalAssigned: 0,
         unassignedAccredited: 0,
         autoAssignEnabled: false,
-        sheetsConfigured: isGoogleSheetsConfigured(),
-        googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
+        sheetsConfigured: isAcreditadosMysqlConfigured(),
+        googleSheetsEnabled: googleSheetsActive(event) && isAcreditadosMysqlConfigured(),
         googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
         googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
         lastSheetError: getVecinoSheetError(req.params.id)
@@ -700,8 +693,8 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
     res.json({
       ...stats,
       autoAssignEnabled: true,
-      sheetsConfigured: isGoogleSheetsConfigured(),
-      googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
+      sheetsConfigured: isAcreditadosMysqlConfigured(),
+      googleSheetsEnabled: googleSheetsActive(event) && isAcreditadosMysqlConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
       googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
       lastSheetError: getVecinoSheetError(req.params.id)
@@ -982,7 +975,9 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
     const currentForSheets = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
       select: {
+        id: true,
         name: true,
+        slug: true,
         status: true,
         enableGoogleSheets: true,
         googleSheetName: true,
@@ -1008,19 +1003,21 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
       : currentForSheets.enableGoogleSheets;
     if (
       nextEnableSheets &&
-      isGoogleSheetsConfigured() &&
-      !currentForSheets.googleSpreadsheetId?.trim()
+      isAcreditadosMysqlConfigured() &&
+      !isValidAcreditadosTableName(currentForSheets.googleSheetName)
     ) {
       try {
-        const created = await createEventSpreadsheetFile(
-          typeof req.body.name === "string" ? req.body.name : currentForSheets.name
-        );
-        if (created) {
-          data.googleSheetName = created.sheetName;
-          data.googleSpreadsheetId = created.spreadsheetId;
-        }
+        const created = await ensureEventAcreditadosTable({
+          id: currentForSheets.id,
+          name: typeof req.body.name === "string" ? req.body.name : currentForSheets.name,
+          slug: typeof req.body.name === "string" ? slugFromEventName(req.body.name) : currentForSheets.slug,
+          googleSheetName: currentForSheets.googleSheetName,
+          googleSpreadsheetId: currentForSheets.googleSpreadsheetId
+        });
+        data.googleSheetName = created.tableName;
+        data.googleSpreadsheetId = created.spreadsheetId;
       } catch (err) {
-        logger.warn({ err, eventId: req.params.id }, "No se pudo crear archivo de Google Sheets al actualizar evento");
+        logger.warn({ err, eventId: req.params.id }, "No se pudo crear la tabla MySQL ACREDITADOS al actualizar evento");
       }
     }
     if (typeof req.body.name === "string") {
@@ -1071,7 +1068,8 @@ router.post("/:id/archive-to-sheets", requireRoles("SUPERADMIN"), async (req, re
       totalPeople: 0,
       accreditedPeople: 0,
       ...googleSheetsResponseFields(event),
-      googleSheetUrl: result.googleSheetUrl
+      googleSheetUrl: result.googleSheetUrl,
+      googleSheetName: result.tableName
     });
   } catch (error) {
     logger.error({ err: error, eventId: req.params.id }, "POST /events/:id/archive-to-sheets");
@@ -1081,7 +1079,7 @@ router.post("/:id/archive-to-sheets", requireRoles("SUPERADMIN"), async (req, re
       return;
     }
     const raw = error instanceof Error ? error.message : String(error);
-    next(new AppError(raw.slice(0, 500) || "No se pudo exportar a Google Sheets.", 503));
+    next(new AppError(raw.slice(0, 500) || "No se pudo exportar a MySQL ACREDITADOS.", 503));
   }
 });
 
@@ -1222,6 +1220,7 @@ type EventForAccredit = {
   id: string;
   kind: EventKind;
   name: string;
+  slug: string;
   startAt: Date;
   enableMesas: boolean;
   enableGoogleSheets: boolean;
@@ -1273,21 +1272,14 @@ async function accreditEventPersonRecord(params: {
     include: { person: true, accreditedByUser: { select: { id: true, name: true } } }
   });
 
-  if (googleSheetsActive(params.event) && isGoogleSheetsConfigured()) {
+  if (googleSheetsActive(params.event) && isAcreditadosMysqlConfigured()) {
     void (async () => {
       try {
-        const ref = await ensureEventGoogleSheet(params.event);
-        if (ref) {
-          await appendVecinoAccreditationToSheet(
-            params.eventId,
-            ref.sheetName,
-            eventPerson,
-            ref.spreadsheetId
-          );
-        }
+        const ref = await ensureEventAcreditadosTable(params.event);
+        await appendAccreditationToAcreditadosMysql(params.eventId, ref.tableName, eventPerson);
       } catch (err) {
-        recordVecinoSheetError(params.eventId, formatGoogleSheetsError(err));
-        logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a Google Sheets");
+        recordVecinoSheetError(params.eventId, formatMysqlError(err));
+        logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a MySQL ACREDITADOS");
       }
     })();
   }
@@ -1883,6 +1875,7 @@ router.post(
           kind: true,
           name: true,
           startAt: true,
+          slug: true,
           enableMesas: true,
           enableGoogleSheets: true,
           mesaCount: true,
@@ -1940,6 +1933,7 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
         kind: true,
         name: true,
         startAt: true,
+        slug: true,
         enableMesas: true,
         enableGoogleSheets: true,
         mesaCount: true,

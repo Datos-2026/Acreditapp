@@ -199,8 +199,8 @@ export function EditEventPage() {
             />
             <ToggleField
               id="enableGoogleSheets"
-              label="¿Datos volcados en un Sheets?"
-              description="Se crea un archivo de Google Sheets para este evento y cada acreditado se envía ahí en tiempo real."
+              label="¿Volcar datos a phpMyAdmin?"
+              description="Se crea una tabla en la base ACREDITADOS para este evento y cada acreditado se envía ahí en tiempo real."
               checked={Boolean(enableGoogleSheets)}
               onChange={(checked) => setValue("enableGoogleSheets", checked, { shouldValidate: true })}
             />

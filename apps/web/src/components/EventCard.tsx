@@ -128,7 +128,11 @@ export function EventCard({ event }: Props) {
       </div>
       {event.status === "archived" || event.dataOffloaded ? (
         <p className="event-card__stats">
-          {event.googleSheetUrl ? "Base operativa volcada a Google Sheets" : "Evento archivado"}
+          {event.googleSheetName
+            ? `Base volcada a ACREDITADOS · ${event.googleSheetName}`
+            : event.googleSheetUrl
+              ? "Base operativa volcada a Google Sheets"
+              : "Evento archivado"}
         </p>
       ) : (
         <p className="event-card__stats">
@@ -146,6 +150,10 @@ export function EventCard({ event }: Props) {
           <Icon name="table_chart" />
           Ver base en Google Sheets
         </a>
+      ) : event.googleSheetName && event.status !== "archived" && !event.dataOffloaded ? (
+        <p className="event-card__stats" style={{ marginTop: "0.35rem" }}>
+          Tabla phpMyAdmin: <strong>{event.googleSheetName}</strong>
+        </p>
       ) : null}
       {event.status === "archived" || event.dataOffloaded ? (
         <Link to={`/events/${event.id}/informe`} className="btn btn-primary event-card__action">

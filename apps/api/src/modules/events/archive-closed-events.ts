@@ -2,12 +2,12 @@ import { EventStatus } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import {
-  buildGoogleSpreadsheetUrl,
-  dumpEventPeopleToSpreadsheet,
-  ensureEventGoogleSheet,
-  formatGoogleSheetsError,
-  isGoogleSheetsConfigured
-} from "./google-sheets-sync";
+  ACREDITADOS_MYSQL_MARKER,
+  dumpEventPeopleToMysql,
+  ensureEventAcreditadosTable,
+  formatMysqlError,
+  isAcreditadosMysqlConfigured
+} from "./acreditados-mysql";
 
 export class ArchiveEventToSheetsError extends Error {
   code: "NOT_FOUND" | "ALREADY_ARCHIVED" | "SHEETS_UNAVAILABLE";
@@ -48,26 +48,21 @@ export function isEventDueForSheetsArchive(
 async function dumpEventBase(event: {
   id: string;
   name: string;
+  slug: string;
   googleSheetName: string | null;
   googleSpreadsheetId: string | null;
 }): Promise<{ spreadsheetId: string; sheetName: string }> {
-  if (!isGoogleSheetsConfigured()) {
+  if (!isAcreditadosMysqlConfigured()) {
     throw new ArchiveEventToSheetsError(
-      "Google Sheets no está configurado: no se puede volcar ni borrar la nómina.",
+      "MySQL ACREDITADOS no está configurado: no se puede volcar ni borrar la nómina.",
       "SHEETS_UNAVAILABLE"
     );
   }
   let ref;
   try {
-    ref = await ensureEventGoogleSheet(event);
+    ref = await ensureEventAcreditadosTable(event);
   } catch (err) {
-    throw new ArchiveEventToSheetsError(formatGoogleSheetsError(err), "SHEETS_UNAVAILABLE");
-  }
-  if (!ref) {
-    throw new ArchiveEventToSheetsError(
-      "No se pudo crear el archivo de Google Sheets del evento.",
-      "SHEETS_UNAVAILABLE"
-    );
+    throw new ArchiveEventToSheetsError(formatMysqlError(err), "SHEETS_UNAVAILABLE");
   }
   const people = await prisma.eventPerson.findMany({
     where: { eventId: event.id },
@@ -75,11 +70,11 @@ async function dumpEventBase(event: {
     orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
   });
   try {
-    await dumpEventPeopleToSpreadsheet(ref.spreadsheetId, ref.sheetName, people);
+    await dumpEventPeopleToMysql(ref.tableName, people);
   } catch (err) {
-    throw new ArchiveEventToSheetsError(formatGoogleSheetsError(err), "SHEETS_UNAVAILABLE");
+    throw new ArchiveEventToSheetsError(formatMysqlError(err), "SHEETS_UNAVAILABLE");
   }
-  return { spreadsheetId: ref.spreadsheetId, sheetName: ref.sheetName };
+  return { spreadsheetId: ref.spreadsheetId, sheetName: ref.tableName };
 }
 
 async function purgeEventOperationalData(eventId: string, now: Date, sheetName: string): Promise<void> {
@@ -102,7 +97,8 @@ async function purgeEventOperationalData(eventId: string, now: Date, sheetName: 
         data: {
           status: EventStatus.archived,
           archivedToSheetsAt: now,
-          googleSheetName: sheetName
+          googleSheetName: sheetName,
+          googleSpreadsheetId: ACREDITADOS_MYSQL_MARKER
         }
       });
     },
@@ -113,12 +109,13 @@ async function purgeEventOperationalData(eventId: string, now: Date, sheetName: 
 export async function archiveEventToSheets(
   eventId: string,
   now: Date = new Date()
-): Promise<{ spreadsheetId: string; googleSheetUrl: string | null }> {
+): Promise<{ spreadsheetId: string; googleSheetUrl: string | null; tableName: string }> {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     select: {
       id: true,
       name: true,
+      slug: true,
       googleSheetName: true,
       googleSpreadsheetId: true,
       archivedToSheetsAt: true
@@ -129,7 +126,7 @@ export async function archiveEventToSheets(
   }
   if (event.archivedToSheetsAt) {
     throw new ArchiveEventToSheetsError(
-      "Este evento ya fue volcado a Google Sheets y la nómina operativa se borró.",
+      "Este evento ya fue volcado a MySQL ACREDITADOS y la nómina operativa se borró.",
       "ALREADY_ARCHIVED"
     );
   }
@@ -143,14 +140,15 @@ export async function archiveEventToSheets(
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new ArchiveEventToSheetsError(
-      `La nómina se volcó a Google Sheets, pero no se pudo borrar de la app: ${detail.slice(0, 400)}`,
+      `La nómina se volcó a MySQL ACREDITADOS, pero no se pudo borrar de la app: ${detail.slice(0, 400)}`,
       "SHEETS_UNAVAILABLE"
     );
   }
-  logger.info({ eventId: event.id, spreadsheetId: ref.spreadsheetId }, "Evento archivado a Google Sheets");
+  logger.info({ eventId: event.id, tableName: ref.sheetName }, "Evento archivado a MySQL ACREDITADOS");
   return {
     spreadsheetId: ref.spreadsheetId,
-    googleSheetUrl: buildGoogleSpreadsheetUrl(ref.spreadsheetId)
+    googleSheetUrl: null,
+    tableName: ref.sheetName
   };
 }
 
@@ -173,7 +171,7 @@ export async function archiveClosedEventsDue(now: Date = new Date()): Promise<{ 
       archived += 1;
     } catch (err) {
       failed += 1;
-      logger.error({ err, eventId: event.id }, "No se pudo archivar el evento a Google Sheets");
+      logger.error({ err, eventId: event.id }, "No se pudo archivar el evento a MySQL ACREDITADOS");
     }
   }
   return { archived, failed };

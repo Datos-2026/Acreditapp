@@ -7,7 +7,7 @@ import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { requireExternalApiKey } from "../../middlewares/external-api-key";
 import { validateBody } from "../../middlewares/validate";
-import { createEventSpreadsheetFile, isGoogleSheetsConfigured } from "../events/google-sheets-sync";
+import { ensureEventAcreditadosTable, isAcreditadosMysqlConfigured } from "../events/acreditados-mysql";
 
 const router = Router();
 
@@ -31,7 +31,7 @@ const createExternalEventSchema = z
     mesaCount: z.number().int().min(1).max(100).optional().nullable(),
     /** Habilitar notas operativas post-acreditación. */
     enableNotes: z.boolean().optional().default(false),
-    /** Enviar acreditados a Google Sheets. */
+    /** Volcar acreditados a MySQL ACREDITADOS (una tabla por evento). */
     enableGoogleSheets: z.boolean().optional().default(false),
     /** Agrupar y acreditar por referente. */
     enableReferentes: z.boolean().optional().default(false)
@@ -110,20 +110,6 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
     const mesaCount =
       enableMesas && req.body.mesaCount != null ? Number(req.body.mesaCount) : null;
 
-    let googleSheetName: string | null = null;
-    let googleSpreadsheetId: string | null = null;
-    if (enableGoogleSheets && isGoogleSheetsConfigured()) {
-      try {
-        const created = await createEventSpreadsheetFile(name);
-        if (created) {
-          googleSheetName = created.sheetName;
-          googleSpreadsheetId = created.spreadsheetId;
-        }
-      } catch (err) {
-        logger.warn({ err, name }, "No se pudo crear Google Sheets al crear evento externo");
-      }
-    }
-
     const event = await prisma.event.create({
       data: {
         name,
@@ -139,11 +125,20 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
         enableGoogleSheets,
         enableReferentes,
         mesaCount,
-        googleSheetName,
-        googleSpreadsheetId,
+        googleSheetName: null,
+        googleSpreadsheetId: null,
         closedAt: status === EventStatus.closed ? new Date() : null
       }
     });
+    if (enableGoogleSheets && isAcreditadosMysqlConfigured()) {
+      try {
+        const created = await ensureEventAcreditadosTable(event);
+        event.googleSheetName = created.tableName;
+        event.googleSpreadsheetId = created.spreadsheetId;
+      } catch (err) {
+        logger.warn({ err, name }, "No se pudo crear la tabla MySQL ACREDITADOS al crear evento externo");
+      }
+    }
 
     await createAuditLog({
       req,

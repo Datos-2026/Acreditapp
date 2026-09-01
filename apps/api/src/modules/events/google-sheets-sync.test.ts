@@ -60,6 +60,10 @@ describe("buildGoogleSpreadsheetUrl", () => {
     expect(buildGoogleSpreadsheetUrl(null)).toBeNull();
     expect(buildGoogleSpreadsheetUrl("  ")).toBeNull();
   });
+
+  it("no arma URL de Google si el dump es MySQL ACREDITADOS", () => {
+    expect(buildGoogleSpreadsheetUrl("ACREDITADOS")).toBeNull();
+  });
 });
 
 describe("buildArchiveSheetRow", () => {

@@ -371,6 +371,7 @@ export function EventDetailPage() {
   const isVecinosEvent = eventKind === "vecinos";
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const googleSheetUrl = eventQuery.data?.googleSheetUrl as string | null | undefined;
+  const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
   const dataOffloaded = Boolean(
     eventQuery.data?.dataOffloaded || eventQuery.data?.status === "archived"
   );
@@ -927,15 +928,15 @@ export function EventDetailPage() {
   const archiveToSheetsMutation = useMutation({
     mutationFn: async () => {
       const { data } = await api.post(`/events/${id}/archive-to-sheets`);
-      return data as { googleSheetUrl?: string | null };
+      return data as { googleSheetUrl?: string | null; googleSheetName?: string | null };
     },
     onSuccess: (data) => {
       setShowArchiveToSheets(false);
       setUiNoticeIsError(false);
       setUiNotice(
-        data.googleSheetUrl
-          ? "Nómina exportada a Google Sheets y borrada del sistema."
-          : "Nómina borrada del sistema. No se obtuvo el link de Google Sheets."
+        data.googleSheetName
+          ? `Nómina exportada a MySQL ACREDITADOS (tabla ${data.googleSheetName}) y borrada del sistema.`
+          : "Nómina volcada a MySQL ACREDITADOS y borrada del sistema."
       );
       void queryClient.invalidateQueries({ queryKey: ["event", id] });
       void queryClient.invalidateQueries({ queryKey: ["events"] });
@@ -946,7 +947,7 @@ export function EventDetailPage() {
       setShowArchiveToSheets(false);
       const message =
         (error as { response?: { data?: { message?: string } } }).response?.data?.message ??
-        "No se pudo exportar a Google Sheets. La nómina no se borró.";
+        "No se pudo exportar a MySQL ACREDITADOS. La nómina no se borró.";
       setUiNoticeIsError(true);
       setUiNotice(message);
     }
@@ -993,8 +994,8 @@ export function EventDetailPage() {
         {isAccreditationClosed ? (
           <p className="message-warning event-detail-header__closed">
             {dataOffloaded
-              ? googleSheetUrl
-                ? "Evento archivado — la base está en Google Sheets."
+              ? googleSheetName
+                ? `Evento archivado — la base está en ACREDITADOS (${googleSheetName}).`
                 : "Evento archivado — la nómina operativa ya no está en la app."
               : "Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar."}
           </p>
@@ -1047,7 +1048,7 @@ export function EventDetailPage() {
                 <Icon name="cloud_upload" />
                 {archiveToSheetsMutation.isPending
                   ? "Exportando…"
-                  : "Exportar a Google Sheets y borrar del sistema"}
+                  : "Exportar a ACREDITADOS y borrar del sistema"}
               </button>
             ) : null}
           </div>
@@ -1091,14 +1092,22 @@ export function EventDetailPage() {
             target="_blank"
             rel="noopener noreferrer"
             title={
-              eventQuery.data?.googleSheetName
-                ? `Hoja: ${eventQuery.data.googleSheetName}`
+              googleSheetName
+                ? `Hoja: ${googleSheetName}`
                 : "Abrir Google Sheets"
             }
           >
             <Icon name="table_chart" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
             Google Sheets
           </a>
+        ) : googleSheetName ? (
+          <span
+            className="tab-btn tab-btn--informe"
+            title={`Tabla ${googleSheetName} en phpMyAdmin (base ACREDITADOS)`}
+          >
+            <Icon name="table_chart" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
+            ACREDITADOS
+          </span>
         ) : null}
         <Link className="tab-btn tab-btn--informe" to={`/events/${id}/informe`} title="Informe post-evento y PDF">
           <Icon name="description" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
@@ -1111,16 +1120,20 @@ export function EventDetailPage() {
             Evento archivado
           </p>
           <p style={{ margin: "0.35rem 0 0.75rem", color: "var(--on-surface-variant)" }}>
-            La nómina operativa se volcó a Google Sheets y ya no se puede acreditar ni importar.
+            La nómina operativa se volcó a MySQL ACREDITADOS y ya no se puede acreditar ni importar.
           </p>
-          {googleSheetUrl ? (
+          {googleSheetName ? (
+            <p style={{ margin: 0 }}>
+              Tabla en phpMyAdmin: <strong>{googleSheetName}</strong> (base ACREDITADOS).
+            </p>
+          ) : googleSheetUrl ? (
             <a className="btn btn-primary" href={googleSheetUrl} target="_blank" rel="noopener noreferrer">
               <Icon name="table_chart" />
               Ver base en Google Sheets
             </a>
           ) : (
             <p className="message-warning" style={{ margin: 0 }}>
-              No hay archivo de Google Sheets asociado. Revisá la configuración de la cuenta de servicio.
+              No hay tabla asociada en ACREDITADOS. Revisá la configuración de MySQL.
             </p>
           )}
         </div>
@@ -2546,8 +2559,8 @@ export function EventDetailPage() {
 
       <ConfirmTypeDialog
         open={showArchiveToSheets}
-        title="Exportar a Google Sheets y borrar del sistema"
-        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a un archivo de Google Sheets (cualquiera con el enlace puede editar). Después se borran personas, importaciones y referentes de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
+        title="Exportar a ACREDITADOS y borrar del sistema"
+        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a una tabla en phpMyAdmin (base ACREDITADOS). Después se borran personas, importaciones y referentes de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
         requiredText={eventQuery.data?.name ?? ""}
         requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setShowArchiveToSheets(false)}

@@ -59,28 +59,25 @@ const envSchema = z.object({
    */
   GEMINI_MODEL: z.string().optional().default("gemma-4-31b-it"),
   /**
-   * JSON de cuenta de servicio de Google (stringificado) para sincronizar acreditados a Sheets.
-   * Compartí el spreadsheet con el client_email de la cuenta.
+   * JSON de cuenta de servicio de Google (legado). El volcado de acreditados usa MySQL ACREDITADOS.
    */
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  /** ID del libro de Google Sheets legado (una pestaña por evento). Ya no es obligatorio. */
+  /** ID del libro de Google Sheets legado. Ya no se usa para guardar acreditados. */
   GOOGLE_SPREADSHEET_ID: z.string().optional(),
-  /**
-   * Carpeta de Drive (idealmente Shared Drive) donde crear un archivo por evento.
-   * La cuenta de servicio no puede crear archivos en “Mi unidad” (cuota 0).
-   */
   GOOGLE_DRIVE_FOLDER_ID: z.string().optional(),
-  /**
-   * Opcional. Mails extra (coma-separados) a los que también se da rol editor.
-   * Por defecto el archivo queda “cualquiera con el enlace puede editar”.
-   */
   GOOGLE_SHEETS_SHARE_WITH: z.string().optional(),
+  /** phpMyAdmin / MySQL: una tabla por evento en la base ACREDITADOS. */
+  ACREDITADOS_MYSQL_HOST: z.string().optional(),
+  ACREDITADOS_MYSQL_PORT: z.coerce.number().optional().default(3307),
+  ACREDITADOS_MYSQL_USER: z.string().optional(),
+  ACREDITADOS_MYSQL_PASSWORD: z.string().optional(),
+  ACREDITADOS_MYSQL_DATABASE: z.string().optional().default("ACREDITADOS"),
   /**
    * API key para crear eventos desde otro sistema (`POST /api/v1/external/events`).
    * Header: `X-Api-Key` o `Authorization: Bearer <key>`.
    */
   EXTERNAL_EVENTS_API_KEY: z.string().min(16).optional(),
-  /** Job que a los 30 días de cerrado vuelca a Sheets y borra la nómina. Off por defecto. */
+  /** Job que a los 30 días de cerrado vuelca a MySQL ACREDITADOS y borra la nómina. Off por defecto. */
   ARCHIVE_CLOSED_EVENTS: z
     .string()
     .optional()

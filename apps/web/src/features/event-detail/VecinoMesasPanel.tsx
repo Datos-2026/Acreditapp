@@ -299,13 +299,13 @@ export function VecinoMesasPanel({
 
               <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
 
-                Google Sheets
+                Tabla ACREDITADOS
 
               </a>
 
             ) : (
 
-              <>Hoja: {stats.googleSheetName}</>
+              <>Tabla: {stats.googleSheetName}</>
 
             )}
 
@@ -377,7 +377,7 @@ export function VecinoMesasPanel({
 
                 <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
 
-                  Abrir Google Sheets
+                  Tabla ACREDITADOS
 
                 </a>
 
@@ -387,7 +387,7 @@ export function VecinoMesasPanel({
 
               <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--on-surface-variant)" }}>
 
-                Hoja: <strong>{stats.googleSheetName}</strong>
+                Tabla: <strong>{stats.googleSheetName}</strong>
 
               </p>
 

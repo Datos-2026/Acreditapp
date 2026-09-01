@@ -73,7 +73,7 @@ model Event {
   enableMesas      Boolean             @default(false)
   /** Habilita pestaña de notas post-acreditación por persona. */
   enableNotes      Boolean             @default(false)
-  /** Volca acreditados en tiempo real a un archivo de Google Sheets propio del evento. */
+  /** Volca acreditados en tiempo real a MySQL ACREDITADOS (una tabla por evento). */
   enableGoogleSheets Boolean           @default(false)
   /** Habilita búsqueda por referente y acreditación del grupo a cargo. */
   enableReferentes   Boolean           @default(false)
@@ -81,9 +81,9 @@ model Event {
   meetingMinutes   String?             @db.Text
   /** Cantidad de mesas cuando enableMesas está activo. */
   mesaCount        Int?
-  /** ID del Google Spreadsheet propio de este evento. */
+  /** "ACREDITADOS" si el dump es MySQL; ID de Google Sheets en eventos legado. */
   googleSpreadsheetId String?
-  /** Nombre de la hoja dentro del spreadsheet (p. ej. Base). */
+  /** Nombre de la tabla MySQL del evento (o pestaña Sheets en eventos legado). */
   googleSheetName  String?
   /** Momento en que se cerró la acreditación (para archivo a los 30 días). */
   closedAt         DateTime?

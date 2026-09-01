@@ -25,7 +25,7 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
     if (!stats?.sheetsConfigured) {
       return compact ? null : (
         <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--on-surface-variant)" }}>
-          Google Sheets no está configurado en el servidor.
+          MySQL ACREDITADOS no está configurado en el servidor.
         </p>
       );
     }
@@ -36,7 +36,7 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
     return (
       <div className="mesa-panel-compact__sheet" style={{ fontSize: "0.7rem", color: "var(--on-surface-variant)" }}>
         <Icon name="table_chart" style={{ fontSize: "0.95rem", verticalAlign: "middle", marginRight: 4 }} />
-        {stats?.googleSheetName ? <>Hoja: {stats.googleSheetName}</> : "Sheets activo"}
+        {stats?.googleSheetName ? <>Tabla: {stats.googleSheetName}</> : "ACREDITADOS activo"}
         {sheetError ? <span className="message-error" style={{ display: "block", marginTop: 4 }}>{sheetError}</span> : null}
       </div>
     );
@@ -46,29 +46,14 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
     <article className="card" style={{ marginBottom: "1rem" }}>
       <h3 className="display-sm" style={{ fontSize: "1.1rem", margin: "0 0 0.35rem", display: "flex", alignItems: "center", gap: 8 }}>
         <Icon name="table_chart" />
-        Google Sheets
+        Base ACREDITADOS
       </h3>
       <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
-        Cada acreditación se vuelca en tiempo real al archivo de Google Sheets de este evento.
+        Cada acreditación se vuelca en tiempo real a la tabla de este evento en phpMyAdmin (base ACREDITADOS).
       </p>
       {stats?.googleSheetName ? (
         <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
-          Hoja: <strong>{stats.googleSheetName}</strong>
-          {stats.googleSheetUrl ? (
-            <>
-              {" "}
-              ·{" "}
-              <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
-                Abrir Sheets
-              </a>
-            </>
-          ) : null}
-        </p>
-      ) : stats?.googleSheetUrl ? (
-        <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
-          <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
-            Abrir Google Sheets
-          </a>
+          Tabla: <strong>{stats.googleSheetName}</strong>
         </p>
       ) : null}
       {sheetError ? <p className="message-error" style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>{sheetError}</p> : null}
