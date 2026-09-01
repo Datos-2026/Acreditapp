@@ -368,7 +368,10 @@ export function EventDetailPage() {
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
-  const enableGoogleSheets = Boolean(eventQuery.data?.enableGoogleSheets);
+  const googleSheetUrl = eventQuery.data?.googleSheetUrl as string | null | undefined;
+  const dataOffloaded = Boolean(
+    eventQuery.data?.dataOffloaded || eventQuery.data?.status === "archived"
+  );
   const enableNotes = Boolean(eventQuery.data?.enableNotes);
   const enableReferentes = Boolean(eventQuery.data?.enableReferentes);
   const mesaCount = eventQuery.data?.mesaCount ?? 0;
@@ -396,14 +399,26 @@ export function EventDetailPage() {
     if (!enableNotes) {
       list = list.filter((t) => t !== "Notas");
     }
+    if (dataOffloaded) {
+      const archivedTabs = new Set<(typeof tabs)[number]>(["Dashboard", "Notas", "Configuración"]);
+      list = list.filter((t) => archivedTabs.has(t));
+    }
     return list;
-  }, [user?.role, isVecinosEvent, enableNotes]);
+  }, [user?.role, isVecinosEvent, enableNotes, dataOffloaded]);
 
   useEffect(() => {
     if (tab === "Notas" && eventQuery.data && !eventQuery.data.enableNotes) {
       setSearchParams({ tab: "terminal" }, { replace: true });
     }
   }, [tab, eventQuery.data, setSearchParams]);
+
+  useEffect(() => {
+    if (!dataOffloaded) return;
+    const allowed = new Set(["Dashboard", "Notas", "Configuración"]);
+    if (!allowed.has(tab)) {
+      setSearchParams({ tab: "metricas" }, { replace: true });
+    }
+  }, [dataOffloaded, tab, setSearchParams]);
 
   const peopleQuery = useQuery({
     queryKey: ["people", id, "list"],
@@ -416,11 +431,13 @@ export function EventDetailPage() {
           source: string;
           person: { cuilNormalized: string; lastName: string; firstName: string };
         }>;
-      }
+      },
+    enabled: Boolean(id) && eventQuery.isSuccess && !dataOffloaded
   });
   const activityQuery = useQuery({
     queryKey: ["activity", id],
-    queryFn: async () => (await api.get(`/events/${id}/activity`)).data
+    queryFn: async () => (await api.get(`/events/${id}/activity`)).data,
+    enabled: Boolean(id) && eventQuery.isSuccess && !dataOffloaded
   });
   const statsQuery = useQuery({
     queryKey: ["stats", id],
@@ -943,7 +960,11 @@ export function EventDetailPage() {
         </p>
         {isAccreditationClosed ? (
           <p className="message-warning event-detail-header__closed">
-            Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar.
+            {dataOffloaded
+              ? googleSheetUrl
+                ? "Evento archivado — la base está en Google Sheets."
+                : "Evento archivado — la nómina operativa ya no está en la app."
+              : "Acreditación cerrada — no se pueden registrar nuevas acreditaciones. Se puede consultar y exportar."}
           </p>
         ) : null}
         {canManageEvent ? (
@@ -952,7 +973,7 @@ export function EventDetailPage() {
               <Icon name="edit" />
               Editar evento
             </Link>
-            {isAccreditationClosed ? (
+            {dataOffloaded ? null : isAccreditationClosed ? (
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -998,7 +1019,7 @@ export function EventDetailPage() {
   );
 
   return (
-    <section className={`event-operation-page${tab === "Acreditar" ? " event-operation-page--terminal" : ""}`}>
+    <section className={`event-operation-page${tab === "Acreditar" && !dataOffloaded ? " event-operation-page--terminal" : ""}`}>
       {tab !== "Acreditar" ? <header className="card event-detail-header">{eventHeaderBody}</header> : null}
       {uiNotice ? (
         <p className="message-success" style={{ marginBottom: "1rem" }}>
@@ -1017,14 +1038,14 @@ export function EventDetailPage() {
             {label}
           </button>
         ))}
-        {enableGoogleSheets && eventQuery.data?.googleSheetUrl ? (
+        {googleSheetUrl ? (
           <a
             className="tab-btn tab-btn--informe"
-            href={eventQuery.data.googleSheetUrl}
+            href={googleSheetUrl}
             target="_blank"
             rel="noopener noreferrer"
             title={
-              eventQuery.data.googleSheetName
+              eventQuery.data?.googleSheetName
                 ? `Hoja: ${eventQuery.data.googleSheetName}`
                 : "Abrir Google Sheets"
             }
@@ -1038,8 +1059,28 @@ export function EventDetailPage() {
           Informe
         </Link>
       </div>
+      {dataOffloaded ? (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <p className="label-md" style={{ marginTop: 0 }}>
+            Evento archivado
+          </p>
+          <p style={{ margin: "0.35rem 0 0.75rem", color: "var(--on-surface-variant)" }}>
+            La nómina operativa se volcó a Google Sheets y ya no se puede acreditar ni importar.
+          </p>
+          {googleSheetUrl ? (
+            <a className="btn btn-primary" href={googleSheetUrl} target="_blank" rel="noopener noreferrer">
+              <Icon name="table_chart" />
+              Ver base en Google Sheets
+            </a>
+          ) : (
+            <p className="message-warning" style={{ margin: 0 }}>
+              No hay archivo de Google Sheets asociado. Revisá la configuración de la cuenta de servicio.
+            </p>
+          )}
+        </div>
+      ) : null}
 
-      {tab === "Acreditar" ? (
+      {tab === "Acreditar" && !dataOffloaded ? (
         <section className="search-card accred-search-row">
           <section className="terminal-section card accred-search-card accred-search-card--main">
             <label className="label-md field-label search-label" htmlFor="live-cuil-search">
@@ -1149,7 +1190,7 @@ export function EventDetailPage() {
         </section>
       ) : null}
 
-      {tab === "Acreditar" ? (
+      {tab === "Acreditar" && !dataOffloaded ? (
         <div className="workspace panels-layout two-cols accred-layout accred-console accred-console--fit">
           <div className="card panel results-panel accred-console__left">
             {debouncedSearch.length < 2 ? (
@@ -1724,7 +1765,7 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {tab === "Personas" ? (
+      {tab === "Personas" && !dataOffloaded ? (
         <div>
           <div
               className="card"
@@ -1822,7 +1863,7 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {tab === "Acreditados" ? (
+      {tab === "Acreditados" && !dataOffloaded ? (
         <div>
           <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "1rem", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
@@ -1941,7 +1982,7 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {tab === "Fuera de base" ? (
+      {tab === "Fuera de base" && !dataOffloaded ? (
         <div>
           <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: "1rem", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
@@ -2042,7 +2083,7 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {tab === "Descargas" ? (
+      {tab === "Descargas" && !dataOffloaded ? (
         <div className="downloads-panel">
           <div className="card">
             <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -2205,13 +2246,13 @@ export function EventDetailPage() {
         </div>
       ) : null}
 
-      {tab === "Importar XLSX" ? (
+      {tab === "Importar XLSX" && !dataOffloaded ? (
         <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
           <ImportWizard eventId={id} eventKind={eventKind} enableReferentes={Boolean(eventQuery.data?.enableReferentes)} />
         </RoleGuard>
       ) : null}
 
-      {tab === "Actividad" ? <ActivityTimeline items={activityQuery.data ?? []} /> : null}
+      {tab === "Actividad" && !dataOffloaded ? <ActivityTimeline items={activityQuery.data ?? []} /> : null}
 
       {tab === "Dashboard" ? (
         <div>

@@ -7,6 +7,7 @@ import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { requireExternalApiKey } from "../../middlewares/external-api-key";
 import { validateBody } from "../../middlewares/validate";
+import { createEventSpreadsheetFile, isGoogleSheetsConfigured } from "../events/google-sheets-sync";
 
 const router = Router();
 
@@ -109,6 +110,20 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
     const mesaCount =
       enableMesas && req.body.mesaCount != null ? Number(req.body.mesaCount) : null;
 
+    let googleSheetName: string | null = null;
+    let googleSpreadsheetId: string | null = null;
+    if (enableGoogleSheets && isGoogleSheetsConfigured()) {
+      try {
+        const created = await createEventSpreadsheetFile(name);
+        if (created) {
+          googleSheetName = created.sheetName;
+          googleSpreadsheetId = created.spreadsheetId;
+        }
+      } catch (err) {
+        logger.warn({ err, name }, "No se pudo crear Google Sheets al crear evento externo");
+      }
+    }
+
     const event = await prisma.event.create({
       data: {
         name,
@@ -123,7 +138,10 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
         enableNotes,
         enableGoogleSheets,
         enableReferentes,
-        mesaCount
+        mesaCount,
+        googleSheetName,
+        googleSpreadsheetId,
+        closedAt: status === EventStatus.closed ? new Date() : null
       }
     });
 
@@ -161,6 +179,8 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
       enableGoogleSheets: event.enableGoogleSheets,
       enableReferentes: event.enableReferentes,
       mesaCount: event.mesaCount,
+      googleSpreadsheetId: event.googleSpreadsheetId,
+      googleSheetName: event.googleSheetName,
       createdAt: event.createdAt.toISOString()
     });
   } catch (error) {

@@ -41,7 +41,7 @@ import {
 import {
   appendVecinoAccreditationToSheet,
   buildGoogleSpreadsheetUrl,
-  createEventGoogleSheet,
+  createEventSpreadsheetFile,
   ensureEventGoogleSheet,
   formatGoogleSheetsError,
   getVecinoSheetError,
@@ -235,13 +235,18 @@ async function assertEventAcceptingAccreditations(eventId: string): Promise<void
 function googleSheetsResponseFields(event: {
   enableGoogleSheets?: boolean | null;
   googleSheetName?: string | null;
+  googleSpreadsheetId?: string | null;
+  archivedToSheetsAt?: Date | null;
+  status?: EventStatus | string | null;
 }) {
-  const enableGoogleSheets = Boolean(event.enableGoogleSheets);
+  const spreadsheetId = event.googleSpreadsheetId?.trim() || null;
   const googleSheetName = isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName ?? null;
+  const dataOffloaded = Boolean(event.archivedToSheetsAt) || event.status === EventStatus.archived;
   return {
     googleSheetName,
-    googleSheetUrl:
-      enableGoogleSheets && isGoogleSheetsConfigured() ? buildGoogleSpreadsheetUrl() : null
+    googleSpreadsheetId: spreadsheetId,
+    googleSheetUrl: spreadsheetId ? buildGoogleSpreadsheetUrl(spreadsheetId) : null,
+    dataOffloaded
   };
 }
 
@@ -254,7 +259,10 @@ function mapEventListItem(
     accreditedPeople: event.eventPeople.length,
     ...googleSheetsResponseFields({
       enableGoogleSheets: event.enableGoogleSheets as boolean | null | undefined,
-      googleSheetName: event.googleSheetName as string | null | undefined
+      googleSheetName: event.googleSheetName as string | null | undefined,
+      googleSpreadsheetId: event.googleSpreadsheetId as string | null | undefined,
+      archivedToSheetsAt: event.archivedToSheetsAt as Date | null | undefined,
+      status: event.status as EventStatus | string | null | undefined
     })
   };
 }
@@ -291,12 +299,18 @@ router.post(
     assertRoleCanCreateEventKind(req.auth!.role, kind);
 
     let googleSheetName: string | null = null;
+    let googleSpreadsheetId: string | null = null;
     const enableGoogleSheets = Boolean(req.body.enableGoogleSheets);
+    const initialStatus = req.body.status ?? EventStatus.draft;
     if (enableGoogleSheets && isGoogleSheetsConfigured()) {
       try {
-        googleSheetName = await createEventGoogleSheet(req.body.name);
+        const created = await createEventSpreadsheetFile(req.body.name);
+        if (created) {
+          googleSheetName = created.sheetName;
+          googleSpreadsheetId = created.spreadsheetId;
+        }
       } catch (err) {
-        logger.warn({ err, eventName: req.body.name }, "No se pudo crear hoja en Google Sheets al crear evento");
+        logger.warn({ err, eventName: req.body.name }, "No se pudo crear archivo de Google Sheets al crear evento");
       }
     }
 
@@ -314,11 +328,13 @@ router.post(
         startAt: req.body.startAt,
         endAt: req.body.endAt,
         location: req.body.location ?? null,
-        status: req.body.status ?? EventStatus.draft,
+        status: initialStatus,
         kind,
         slug: slugFromEventName(req.body.name),
         googleSheetName,
+        googleSpreadsheetId,
         enableGoogleSheets,
+        closedAt: initialStatus === EventStatus.closed ? new Date() : null,
         ...features
       }
     });
@@ -333,7 +349,10 @@ router.post(
       entityType: "event",
       entityId: event.id
     });
-    res.status(201).json(event);
+    res.status(201).json({
+      ...event,
+      ...googleSheetsResponseFields(event)
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       next(new AppError("Ya existe un evento con ese nombre o identificador", 409));
@@ -630,9 +649,9 @@ router.get("/:id/sheets/stats", async (req, res, next) => {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
-      select: { enableGoogleSheets: true, googleSheetName: true }
+      select: { enableGoogleSheets: true, googleSheetName: true, googleSpreadsheetId: true, archivedToSheetsAt: true, status: true }
     });
-    if (!event.enableGoogleSheets) {
+    if (!event.enableGoogleSheets && !event.googleSpreadsheetId) {
       res.status(400).json({ message: "Este evento no tiene Google Sheets habilitado" });
       return;
     }
@@ -640,7 +659,7 @@ router.get("/:id/sheets/stats", async (req, res, next) => {
       sheetsConfigured: isGoogleSheetsConfigured(),
       googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
-      googleSheetUrl: googleSheetsActive(event) ? buildGoogleSpreadsheetUrl() : null,
+      googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
       lastSheetError: getVecinoSheetError(req.params.id)
     });
   } catch (error) {
@@ -654,7 +673,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const event = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
-      select: { kind: true, enableMesas: true, enableGoogleSheets: true, mesaCount: true, googleSheetName: true }
+      select: { kind: true, enableMesas: true, enableGoogleSheets: true, mesaCount: true, googleSheetName: true, googleSpreadsheetId: true }
     });
     if (!event.enableMesas) {
       res.status(400).json({ message: "Este evento no tiene mesas habilitadas" });
@@ -671,6 +690,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
         sheetsConfigured: isGoogleSheetsConfigured(),
         googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
         googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+        googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
         lastSheetError: getVecinoSheetError(req.params.id)
       });
       return;
@@ -682,6 +702,7 @@ router.get("/:id/mesas/stats", async (req, res, next) => {
       sheetsConfigured: isGoogleSheetsConfigured(),
       googleSheetsEnabled: googleSheetsActive(event) && isGoogleSheetsConfigured(),
       googleSheetName: isUnprovisionedSheetName(event.googleSheetName) ? null : event.googleSheetName,
+      googleSheetUrl: buildGoogleSpreadsheetUrl(event.googleSpreadsheetId),
       lastSheetError: getVecinoSheetError(req.params.id)
     });
   } catch (error) {
@@ -959,22 +980,46 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
     }
     const currentForSheets = await prisma.event.findUniqueOrThrow({
       where: { id: req.params.id },
-      select: { name: true, enableGoogleSheets: true, googleSheetName: true }
+      select: {
+        name: true,
+        status: true,
+        enableGoogleSheets: true,
+        googleSheetName: true,
+        googleSpreadsheetId: true,
+        archivedToSheetsAt: true
+      }
     });
+    if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
+      const nextStatus = req.body.status as EventStatus;
+      const offloaded =
+        Boolean(currentForSheets.archivedToSheetsAt) || currentForSheets.status === EventStatus.archived;
+      if (offloaded && nextStatus !== EventStatus.archived) {
+        throw new AppError("Este evento ya está archivado y no se puede reabrir.", 409);
+      }
+      if (nextStatus === EventStatus.closed && currentForSheets.status !== EventStatus.closed) {
+        data.closedAt = new Date();
+      } else if (nextStatus === EventStatus.active || nextStatus === EventStatus.draft) {
+        data.closedAt = null;
+      }
+    }
     const nextEnableSheets = Object.prototype.hasOwnProperty.call(req.body, "enableGoogleSheets")
       ? Boolean(req.body.enableGoogleSheets)
       : currentForSheets.enableGoogleSheets;
     if (
       nextEnableSheets &&
       isGoogleSheetsConfigured() &&
-      isUnprovisionedSheetName(currentForSheets.googleSheetName)
+      !currentForSheets.googleSpreadsheetId?.trim()
     ) {
       try {
-        data.googleSheetName = await createEventGoogleSheet(
+        const created = await createEventSpreadsheetFile(
           typeof req.body.name === "string" ? req.body.name : currentForSheets.name
         );
+        if (created) {
+          data.googleSheetName = created.sheetName;
+          data.googleSpreadsheetId = created.spreadsheetId;
+        }
       } catch (err) {
-        logger.warn({ err, eventId: req.params.id }, "No se pudo crear hoja en Google Sheets al actualizar evento");
+        logger.warn({ err, eventId: req.params.id }, "No se pudo crear archivo de Google Sheets al actualizar evento");
       }
     }
     if (typeof req.body.name === "string") {
@@ -991,7 +1036,10 @@ router.patch("/:id", requireRoles(...MANAGE_EVENT_ROLES), validateBody(eventPatc
       entityId: event.id,
       metadata: req.body
     });
-    res.json(event);
+    res.json({
+      ...event,
+      ...googleSheetsResponseFields(event)
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       next(new AppError("Ya existe un evento con ese nombre o identificador", 409));
@@ -1143,6 +1191,7 @@ type EventForAccredit = {
   enableGoogleSheets: boolean;
   mesaCount: number | null;
   googleSheetName: string | null;
+  googleSpreadsheetId: string | null;
 };
 
 async function accreditEventPersonRecord(params: {
@@ -1191,8 +1240,15 @@ async function accreditEventPersonRecord(params: {
   if (googleSheetsActive(params.event) && isGoogleSheetsConfigured()) {
     void (async () => {
       try {
-        const sheetName = await ensureEventGoogleSheet(params.event);
-        if (sheetName) await appendVecinoAccreditationToSheet(params.eventId, sheetName, eventPerson);
+        const ref = await ensureEventGoogleSheet(params.event);
+        if (ref) {
+          await appendVecinoAccreditationToSheet(
+            params.eventId,
+            ref.sheetName,
+            eventPerson,
+            ref.spreadsheetId
+          );
+        }
       } catch (err) {
         recordVecinoSheetError(params.eventId, formatGoogleSheetsError(err));
         logger.warn({ err, eventPersonId: eventPerson.id }, "Falló envío a Google Sheets");
@@ -1794,7 +1850,8 @@ router.post(
           enableMesas: true,
           enableGoogleSheets: true,
           mesaCount: true,
-          googleSheetName: true
+          googleSheetName: true,
+          googleSpreadsheetId: true
         }
       });
       const ids = [...new Set(req.body.eventPersonIds as string[])];
@@ -1850,7 +1907,8 @@ router.post("/:id/people/:eventPersonId/accredit", requireRoles(...ACCREDIT_ROLE
         enableMesas: true,
         enableGoogleSheets: true,
         mesaCount: true,
-        googleSheetName: true
+        googleSheetName: true,
+        googleSpreadsheetId: true
       }
     });
     const result = await accreditEventPersonRecord({

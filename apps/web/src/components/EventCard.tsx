@@ -126,14 +126,38 @@ export function EventCard({ event }: Props) {
         <Icon name="calendar_today" style={{ fontSize: 18 }} />
         <span>{formatDateTimeAr(event.startAt)}</span>
       </div>
-      <p className="event-card__stats">
-        <strong>En base:</strong> {event.totalPeople} &nbsp;|&nbsp; <strong>Acreditados:</strong>{" "}
-        {event.accreditedPeople}
-      </p>
-      <Link to={eventHref} className="btn btn-primary event-card__action">
-        <Icon name="arrow_forward" />
-        {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}
-      </Link>
+      {event.status === "archived" || event.dataOffloaded ? (
+        <p className="event-card__stats">
+          {event.googleSheetUrl ? "Base operativa volcada a Google Sheets" : "Evento archivado"}
+        </p>
+      ) : (
+        <p className="event-card__stats">
+          <strong>En base:</strong> {event.totalPeople} &nbsp;|&nbsp; <strong>Acreditados:</strong>{" "}
+          {event.accreditedPeople}
+        </p>
+      )}
+      {event.googleSheetUrl ? (
+        <a
+          href={event.googleSheetUrl}
+          className="btn btn-secondary event-card__action"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Icon name="table_chart" />
+          Ver base en Google Sheets
+        </a>
+      ) : null}
+      {event.status === "archived" || event.dataOffloaded ? (
+        <Link to={`/events/${event.id}/informe`} className="btn btn-primary event-card__action">
+          <Icon name="description" />
+          Ver informe
+        </Link>
+      ) : (
+        <Link to={eventHref} className="btn btn-primary event-card__action">
+          <Icon name="arrow_forward" />
+          {user?.role === "INFORMADOR" ? "Ver informe" : "Ingresar al evento"}
+        </Link>
+      )}
       {deleteError ? <p className="message-error" style={{ marginTop: "0.5rem" }}>{deleteError}</p> : null}
       <ConfirmDialog
         open={showDeleteConfirm}

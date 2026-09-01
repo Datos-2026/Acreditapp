@@ -26,6 +26,8 @@ export type EventCardDto = {
   mesaCount?: number | null;
   googleSheetName?: string | null;
   googleSheetUrl?: string | null;
+  googleSpreadsheetId?: string | null;
+  dataOffloaded?: boolean;
   totalPeople: number;
   accreditedPeople: number;
 };
@@ -55,6 +57,7 @@ export type MesaStatsDto = {
   sheetsConfigured: boolean;
   googleSheetsEnabled: boolean;
   googleSheetName?: string | null;
+  googleSheetUrl?: string | null;
   lastSheetError?: string | null;
 };
 

@@ -167,7 +167,7 @@ export function CreateEventPage() {
             <ToggleField
               id="enableGoogleSheets"
               label="¿Datos volcados en un Sheets?"
-              description="Cada acreditado se envía en tiempo real a Google Sheets en una hoja con el nombre del evento."
+              description="Se crea un archivo de Google Sheets para este evento y cada acreditado se envía ahí en tiempo real."
               checked={enableGoogleSheets}
               onChange={(checked) => setValue("enableGoogleSheets", checked, { shouldValidate: true })}
             />

@@ -63,8 +63,13 @@ const envSchema = z.object({
    * Compartí el spreadsheet con el client_email de la cuenta.
    */
   GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
-  /** ID del libro de Google Sheets compartido (una hoja por evento con toggle activo). */
+  /** ID del libro de Google Sheets legado (una pestaña por evento). Ya no es obligatorio. */
   GOOGLE_SPREADSHEET_ID: z.string().optional(),
+  /**
+   * Opcional. Mails extra (coma-separados) a los que también se da rol editor.
+   * Por defecto el archivo queda “cualquiera con el enlace puede editar”.
+   */
+  GOOGLE_SHEETS_SHARE_WITH: z.string().optional(),
   /**
    * API key para crear eventos desde otro sistema (`POST /api/v1/external/events`).
    * Header: `X-Api-Key` o `Authorization: Bearer <key>`.
@@ -111,6 +116,10 @@ export const env = {
     process.env.NODE_ENV !== "production" &&
     process.env.NODE_ENV !== "test",
   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS: googleServiceAccountCredentials,
+  GOOGLE_SHEETS_SHARE_EMAILS: (raw.GOOGLE_SHEETS_SHARE_WITH ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.includes("@")),
   CORS_ORIGINS: expandLocalViteOrigins(
     raw.CORS_ORIGIN.split(",")
       .map((s) => s.trim())

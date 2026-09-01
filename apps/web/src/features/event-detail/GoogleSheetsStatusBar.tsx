@@ -49,7 +49,7 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
         Google Sheets
       </h3>
       <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
-        Cada acreditación se vuelca en tiempo real a una hoja con el nombre del evento.
+        Cada acreditación se vuelca en tiempo real al archivo de Google Sheets de este evento.
       </p>
       {stats?.googleSheetName ? (
         <p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem" }}>
