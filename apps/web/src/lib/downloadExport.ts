@@ -75,6 +75,38 @@ export async function downloadEventTwoSheetsXlsx(eventId: string): Promise<void>
   );
 }
 
+/** XLSX con la nómina guardada en MySQL ACREDITADOS. */
+export async function downloadAcreditadosMysqlXlsx(eventId: string): Promise<void> {
+  try {
+    const res = await api.get(`/events/${eventId}/export/acreditados-mysql`, {
+      responseType: "blob"
+    });
+    const data = res.data as Blob;
+    if (data instanceof Blob && /json/i.test(data.type)) {
+      const payload = JSON.parse(await data.text()) as { message?: string };
+      throw new Error(payload.message || "No se pudo descargar la base de ACREDITADOS.");
+    }
+    triggerBlobDownload(data, filenameFromHeaders(res.headers, "base-acreditados.xlsx"));
+  } catch (error) {
+    const data = (error as { response?: { data?: unknown } }).response?.data;
+    if (data instanceof Blob) {
+      try {
+        const payload = JSON.parse(await data.text()) as { message?: string };
+        throw new Error(payload.message || "No se pudo descargar la base de ACREDITADOS.");
+      } catch (parsed) {
+        if (parsed instanceof SyntaxError) {
+          throw new Error("No se pudo descargar la base de ACREDITADOS.");
+        }
+        throw parsed;
+      }
+    }
+    if (data && typeof data === "object" && "message" in data && typeof (data as { message: unknown }).message === "string") {
+      throw new Error((data as { message: string }).message);
+    }
+    throw error;
+  }
+}
+
 /** Dimensión por la que se agrupan las personas en el panel de descargas. */
 export type GroupedExportDimension = "ministerio" | "rol" | "comuna" | "mesa";
 /** `accredited` = solo acreditados; `all` = todas las personas del evento. */

@@ -1,8 +1,9 @@
 import mysql from "mysql2/promise";
+import * as XLSX from "xlsx";
 import type { EventPerson, Person, User } from "../../prisma-exports";
 import { env } from "../../config/env";
 import { logger } from "../../lib/logger";
-import { buildArchiveSheetRow, clearVecinoSheetError, recordVecinoSheetError } from "./google-sheets-sync";
+import { ARCHIVE_SHEET_HEADER, buildArchiveSheetRow, clearVecinoSheetError, recordVecinoSheetError } from "./google-sheets-sync";
 
 type AccreditedRow = EventPerson & {
   person: Person;
@@ -256,4 +257,40 @@ export async function appendAccreditationToAcreditadosMysql(
     logger.error({ err, eventId, tableName, eventPersonId: eventPerson.id }, "Falló envío a MySQL ACREDITADOS");
     throw err;
   }
+}
+
+const EXPORT_COLUMNS = COLUMN_NAMES.filter((c) => c !== "event_person_id");
+
+export async function fetchAcreditadosMysqlRows(tableName: string): Promise<string[][]> {
+  assertTableName(tableName);
+  const db = await getPool();
+  const colList = EXPORT_COLUMNS.map((c) => `\`${c}\``).join(", ");
+  try {
+    const [rows] = await db.query(
+      `SELECT ${colList} FROM \`${tableName}\` ORDER BY apellido ASC, nombre ASC, id ASC`
+    );
+    return (rows as Array<Record<string, unknown>>).map((row) =>
+      EXPORT_COLUMNS.map((col) => {
+        const value = row[col];
+        if (value == null) return "";
+        if (value instanceof Date) {
+          return value.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+        }
+        return String(value);
+      })
+    );
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === "ER_NO_SUCH_TABLE") {
+      throw new Error("Este evento no tiene tabla en MySQL ACREDITADOS.");
+    }
+    throw err;
+  }
+}
+
+export function buildAcreditadosMysqlXlsxBuffer(dataRows: string[][]): Buffer {
+  const sheet = XLSX.utils.aoa_to_sheet([[...ARCHIVE_SHEET_HEADER], ...dataRows]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "ACREDITADOS");
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }

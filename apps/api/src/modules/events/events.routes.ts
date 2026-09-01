@@ -42,7 +42,9 @@ import {
 import { buildGoogleSpreadsheetUrl, getVecinoSheetError, isUnprovisionedSheetName, recordVecinoSheetError } from "./google-sheets-sync";
 import {
   appendAccreditationToAcreditadosMysql,
+  buildAcreditadosMysqlXlsxBuffer,
   ensureEventAcreditadosTable,
+  fetchAcreditadosMysqlRows,
   formatMysqlError,
   isAcreditadosMysqlConfigured,
   isValidAcreditadosTableName
@@ -474,6 +476,53 @@ router.get("/:id/export/two-sheets", async (req, res, next) => {
       "Content-Disposition",
       `attachment; filename="acreditacion-2-hojas__${fileSuffixFromEvent(event)}.xlsx"`
     );
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** XLSX con la nómina volcada en MySQL ACREDITADOS (una tabla por evento). */
+router.get("/:id/export/acreditados-mysql", async (req, res, next) => {
+  try {
+    await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
+    if (!isAcreditadosMysqlConfigured()) {
+      throw new AppError("MySQL ACREDITADOS no está configurado en el servidor.", 503);
+    }
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { slug: true, name: true, googleSheetName: true }
+    });
+    if (!event) {
+      throw new AppError("Evento no encontrado", 404);
+    }
+    if (!isValidAcreditadosTableName(event.googleSheetName)) {
+      throw new AppError("Este evento no tiene tabla en MySQL ACREDITADOS.", 404);
+    }
+    let rows: string[][];
+    try {
+      rows = await fetchAcreditadosMysqlRows(event.googleSheetName!);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "";
+      if (/no tiene tabla/i.test(raw)) {
+        throw new AppError(raw, 404);
+      }
+      throw new AppError(formatMysqlError(err), 503);
+    }
+    const filename = `base-acreditados__${fileSuffixFromEvent(event)}.xlsx`;
+    const buffer = buildAcreditadosMysqlXlsxBuffer(rows);
+    await createAuditLog({
+      req,
+      action: "event.export.acreditadosMysql",
+      entityType: "event",
+      entityId: req.params.id,
+      metadata: { tableName: event.googleSheetName, rows: rows.length, format: "xlsx" }
+    });
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(buffer);
   } catch (error) {
     next(error);

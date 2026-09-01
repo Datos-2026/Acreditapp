@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDateTimeAr } from "@gcba/shared";
 import { api } from "../lib/api";
+import { downloadAcreditadosMysqlXlsx } from "../lib/downloadExport";
 import { Icon } from "./Icon";
 import { useAuth } from "../features/auth/auth-context";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -35,6 +36,8 @@ export function EventCard({ event }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [downloadingBase, setDownloadingBase] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const canManage = user?.role === "SUPERADMIN" || user?.role === "ADMIN_EVENTO";
   const isAdminPath = location.pathname.startsWith("/admin");
@@ -59,6 +62,22 @@ export function EventCard({ event }: Props) {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [menuOpen]);
+
+  const canDownloadAcreditadosBase = Boolean(
+    event.googleSheetName || event.enableGoogleSheets || event.googleSheetUrl
+  );
+
+  const downloadAcreditadosBase = async () => {
+    setDownloadError(null);
+    setDownloadingBase(true);
+    try {
+      await downloadAcreditadosMysqlXlsx(event.id);
+    } catch {
+      setDownloadError("No se pudo descargar la base de ACREDITADOS.");
+    } finally {
+      setDownloadingBase(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -140,21 +159,18 @@ export function EventCard({ event }: Props) {
           {event.accreditedPeople}
         </p>
       )}
-      {event.googleSheetUrl ? (
-        <a
-          href={event.googleSheetUrl}
+      {canDownloadAcreditadosBase ? (
+        <button
+          type="button"
           className="btn btn-secondary event-card__action"
-          target="_blank"
-          rel="noopener noreferrer"
+          onClick={() => void downloadAcreditadosBase()}
+          disabled={downloadingBase}
         >
-          <Icon name="table_chart" />
-          Ver base en Google Sheets
-        </a>
-      ) : event.googleSheetName && event.status !== "archived" && !event.dataOffloaded ? (
-        <p className="event-card__stats" style={{ marginTop: "0.35rem" }}>
-          Tabla phpMyAdmin: <strong>{event.googleSheetName}</strong>
-        </p>
+          <Icon name="download" />
+          {downloadingBase ? "Descargando…" : "DESCARGAR BASE DE ACREDITADOS"}
+        </button>
       ) : null}
+      {downloadError ? <p className="message-error" style={{ marginTop: "0.5rem" }}>{downloadError}</p> : null}
       {event.status === "archived" || event.dataOffloaded ? (
         <Link to={`/events/${event.id}/informe`} className="btn btn-primary event-card__action">
           <Icon name="description" />

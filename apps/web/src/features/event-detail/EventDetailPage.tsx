@@ -29,6 +29,7 @@ import type { DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto,
 import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
+  downloadAcreditadosMysqlXlsx,
   downloadEventTwoSheetsXlsx,
   downloadGroupedXlsx,
   downloadPeopleBaseXlsx
@@ -311,6 +312,7 @@ export function EventDetailPage() {
   const [searchedOnce, setSearchedOnce] = useState(false);
   const [showDeleteEvent, setShowDeleteEvent] = useState(false);
   const [showArchiveToSheets, setShowArchiveToSheets] = useState(false);
+  const [downloadingAcreditadosBase, setDownloadingAcreditadosBase] = useState(false);
   const [deletePersonTarget, setDeletePersonTarget] = useState<{
     id: string;
     label: string;
@@ -372,6 +374,25 @@ export function EventDetailPage() {
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const googleSheetUrl = eventQuery.data?.googleSheetUrl as string | null | undefined;
   const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
+  const canDownloadAcreditadosBase = Boolean(
+    googleSheetName || eventQuery.data?.enableGoogleSheets || googleSheetUrl
+  );
+
+  const downloadAcreditadosBase = async () => {
+    setDownloadingAcreditadosBase(true);
+    try {
+      await downloadAcreditadosMysqlXlsx(id);
+    } catch (error: unknown) {
+      const message =
+        (error as { response?: { data?: { message?: string } } }).response?.data?.message ??
+        (error instanceof Error ? error.message : null) ??
+        "No se pudo descargar la base de ACREDITADOS.";
+      setUiNoticeIsError(true);
+      setUiNotice(message);
+    } finally {
+      setDownloadingAcreditadosBase(false);
+    }
+  };
   const dataOffloaded = Boolean(
     eventQuery.data?.dataOffloaded || eventQuery.data?.status === "archived"
   );
@@ -1085,29 +1106,17 @@ export function EventDetailPage() {
             {label}
           </button>
         ))}
-        {googleSheetUrl ? (
-          <a
+        {canDownloadAcreditadosBase ? (
+          <button
             className="tab-btn tab-btn--informe"
-            href={googleSheetUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={
-              googleSheetName
-                ? `Hoja: ${googleSheetName}`
-                : "Abrir Google Sheets"
-            }
+            type="button"
+            onClick={() => void downloadAcreditadosBase()}
+            disabled={downloadingAcreditadosBase}
+            title="Descargar la nómina desde MySQL ACREDITADOS"
           >
-            <Icon name="table_chart" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
-            Google Sheets
-          </a>
-        ) : googleSheetName ? (
-          <span
-            className="tab-btn tab-btn--informe"
-            title={`Tabla ${googleSheetName} en phpMyAdmin (base ACREDITADOS)`}
-          >
-            <Icon name="table_chart" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
-            ACREDITADOS
-          </span>
+            <Icon name="download" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
+            {downloadingAcreditadosBase ? "Descargando…" : "DESCARGAR BASE DE ACREDITADOS"}
+          </button>
         ) : null}
         <Link className="tab-btn tab-btn--informe" to={`/events/${id}/informe`} title="Informe post-evento y PDF">
           <Icon name="description" style={{ fontSize: "1.1rem", verticalAlign: "middle", marginRight: 4 }} />
@@ -1122,15 +1131,16 @@ export function EventDetailPage() {
           <p style={{ margin: "0.35rem 0 0.75rem", color: "var(--on-surface-variant)" }}>
             La nómina operativa se volcó a MySQL ACREDITADOS y ya no se puede acreditar ni importar.
           </p>
-          {googleSheetName ? (
-            <p style={{ margin: 0 }}>
-              Tabla en phpMyAdmin: <strong>{googleSheetName}</strong> (base ACREDITADOS).
-            </p>
-          ) : googleSheetUrl ? (
-            <a className="btn btn-primary" href={googleSheetUrl} target="_blank" rel="noopener noreferrer">
-              <Icon name="table_chart" />
-              Ver base en Google Sheets
-            </a>
+          {canDownloadAcreditadosBase ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void downloadAcreditadosBase()}
+              disabled={downloadingAcreditadosBase}
+            >
+              <Icon name="download" />
+              {downloadingAcreditadosBase ? "Descargando…" : "DESCARGAR BASE DE ACREDITADOS"}
+            </button>
           ) : (
             <p className="message-warning" style={{ margin: 0 }}>
               No hay tabla asociada en ACREDITADOS. Revisá la configuración de MySQL.
