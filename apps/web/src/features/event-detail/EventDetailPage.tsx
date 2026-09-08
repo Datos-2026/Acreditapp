@@ -372,11 +372,8 @@ export function EventDetailPage() {
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
-  const googleSheetUrl = eventQuery.data?.googleSheetUrl as string | null | undefined;
   const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
-  const canDownloadAcreditadosBase = Boolean(
-    googleSheetName || eventQuery.data?.enableGoogleSheets || googleSheetUrl
-  );
+  const canDownloadAcreditadosBase = Boolean(eventQuery.data?.canDownloadAcreditadosBase);
 
   const downloadAcreditadosBase = async () => {
     setDownloadingAcreditadosBase(true);

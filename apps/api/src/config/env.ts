@@ -72,6 +72,11 @@ const envSchema = z.object({
   ACREDITADOS_MYSQL_USER: z.string().optional(),
   ACREDITADOS_MYSQL_PASSWORD: z.string().optional(),
   ACREDITADOS_MYSQL_DATABASE: z.string().optional().default("ACREDITADOS"),
+  /** Consolidado histórico de personas y asistencias, separado de las tablas por evento. */
+  BASE_ACREDITADOS_MYSQL_DATABASE: z.string().optional().default("BASE_ACREDITADOS"),
+  /** Ubicación de la tabla DOTACION_GCBA_PRUEBA usada para enriquecer personas. */
+  DOTACION_MYSQL_DATABASE: z.string().optional().default("padron"),
+  DOTACION_MYSQL_TABLE: z.string().optional().default("dotacion_gcba_prueba"),
   /**
    * API key para crear eventos desde otro sistema (`POST /api/v1/external/events`).
    * Header: `X-Api-Key` o `Authorization: Bearer <key>`.

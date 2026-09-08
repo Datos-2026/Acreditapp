@@ -28,6 +28,8 @@ export type EventCardDto = {
   googleSheetUrl?: string | null;
   googleSpreadsheetId?: string | null;
   dataOffloaded?: boolean;
+  canDownloadAcreditadosBase?: boolean;
+  closedAt?: string | null;
   totalPeople: number;
   accreditedPeople: number;
 };

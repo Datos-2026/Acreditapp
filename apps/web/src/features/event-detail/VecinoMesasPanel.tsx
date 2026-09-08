@@ -295,19 +295,7 @@ export function VecinoMesasPanel({
 
           <p className="mesa-panel-compact__sheet" style={{ margin: "0.35rem 0 0", fontSize: "0.7rem" }}>
 
-            {stats.googleSheetUrl ? (
-
-              <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
-
-                Tabla ACREDITADOS
-
-              </a>
-
-            ) : (
-
-              <>Tabla: {stats.googleSheetName}</>
-
-            )}
+            {stats.googleSheetName ? <>Tabla: {stats.googleSheetName}</> : "ACREDITADOS"}
 
           </p>
 
@@ -371,19 +359,7 @@ export function VecinoMesasPanel({
 
           <div style={{ textAlign: "right" }}>
 
-            {stats?.googleSheetUrl ? (
-
-              <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem" }}>
-
-                <a href={stats.googleSheetUrl} target="_blank" rel="noopener noreferrer">
-
-                  Tabla ACREDITADOS
-
-                </a>
-
-              </p>
-
-            ) : stats?.googleSheetName ? (
+            {stats?.googleSheetName ? (
 
               <p style={{ margin: "0.35rem 0 0", fontSize: "0.75rem", color: "var(--on-surface-variant)" }}>
 

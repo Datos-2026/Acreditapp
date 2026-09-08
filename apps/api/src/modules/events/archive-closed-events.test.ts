@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EventStatus } from "../../prisma-exports";
-import { ARCHIVE_CLOSED_AFTER_MS, isEventDueForSheetsArchive } from "./archive-closed-events";
+import { ARCHIVE_CLOSED_AFTER_MS, isEligibleForAcreditadosMysqlDump, isEventDueForSheetsArchive } from "./archive-closed-events";
 
 describe("isEventDueForSheetsArchive", () => {
   const now = new Date("2026-09-01T12:00:00.000Z");
@@ -54,5 +54,50 @@ describe("isEventDueForSheetsArchive", () => {
     expect(
       isEventDueForSheetsArchive({ status: EventStatus.closed, closedAt: null, archivedToSheetsAt: null }, now)
     ).toBe(false);
+  });
+});
+
+describe("isEligibleForAcreditadosMysqlDump", () => {
+  const now = new Date("2026-09-01T12:00:00.000Z");
+
+  it("permite cerrado con más de 30 días", () => {
+    expect(
+      isEligibleForAcreditadosMysqlDump(
+        {
+          status: EventStatus.closed,
+          closedAt: new Date(now.getTime() - ARCHIVE_CLOSED_AFTER_MS - 1000),
+          archivedToSheetsAt: null
+        },
+        now
+      )
+    ).toBe(true);
+  });
+
+  it("no permite activo ni cerrado reciente", () => {
+    expect(
+      isEligibleForAcreditadosMysqlDump(
+        { status: EventStatus.active, closedAt: null, archivedToSheetsAt: null },
+        now
+      )
+    ).toBe(false);
+    expect(
+      isEligibleForAcreditadosMysqlDump(
+        {
+          status: EventStatus.closed,
+          closedAt: new Date(now.getTime() - ARCHIVE_CLOSED_AFTER_MS + 60_000),
+          archivedToSheetsAt: null
+        },
+        now
+      )
+    ).toBe(false);
+  });
+
+  it("permite archivados", () => {
+    expect(
+      isEligibleForAcreditadosMysqlDump(
+        { status: EventStatus.archived, closedAt: now, archivedToSheetsAt: now },
+        now
+      )
+    ).toBe(true);
   });
 });

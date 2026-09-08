@@ -149,21 +149,21 @@ const CREATE_TABLE_SQL = `
   cuil VARCHAR(32) NULL,
   apellido VARCHAR(255) NOT NULL DEFAULT '',
   nombre VARCHAR(255) NOT NULL DEFAULT '',
-  email VARCHAR(255) NULL,
+  email TEXT NULL,
   telefono VARCHAR(64) NULL,
   comuna VARCHAR(64) NULL,
   direccion TEXT NULL,
-  empresa VARCHAR(255) NULL,
-  cargo VARCHAR(255) NULL,
+  empresa TEXT NULL,
+  cargo TEXT NULL,
   estado VARCHAR(64) NULL,
   origen VARCHAR(64) NULL,
   mesa VARCHAR(64) NULL,
   acreditado_el VARCHAR(64) NULL,
-  acreditado_por VARCHAR(255) NULL,
-  escuela VARCHAR(255) NULL,
-  seccion VARCHAR(255) NULL,
-  oferta VARCHAR(255) NULL,
-  referente VARCHAR(255) NULL,
+  acreditado_por TEXT NULL,
+  escuela TEXT NULL,
+  seccion TEXT NULL,
+  oferta TEXT NULL,
+  referente TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_event_person (event_person_id)
@@ -175,6 +175,41 @@ async function createTableIfNotExists(tableName: string): Promise<void> {
   await db.query(
     `CREATE TABLE IF NOT EXISTS \`${tableName}\` (${CREATE_TABLE_SQL}) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   );
+  await db.query(
+    `ALTER TABLE \`${tableName}\`
+      MODIFY email TEXT NULL,
+      MODIFY direccion TEXT NULL,
+      MODIFY empresa TEXT NULL,
+      MODIFY cargo TEXT NULL,
+      MODIFY acreditado_por TEXT NULL,
+      MODIFY escuela TEXT NULL,
+      MODIFY seccion TEXT NULL,
+      MODIFY oferta TEXT NULL,
+      MODIFY referente TEXT NULL`
+  );
+}
+
+export async function closeAcreditadosMysqlPool(): Promise<void> {
+  if (!pool) return;
+  await pool.end();
+  pool = null;
+  databaseReady = false;
+}
+
+export async function dropEventAcreditadosTable(tableName: string): Promise<void> {
+  assertTableName(tableName);
+  const db = await getPool();
+  await db.query(`DROP TABLE IF EXISTS \`${tableName}\``);
+  logger.info({ tableName }, "Tabla MySQL ACREDITADOS eliminada (evento aún no cumple 30 días de cerrado)");
+}
+
+export async function listAcreditadosTableNames(): Promise<string[]> {
+  const db = await getPool();
+  const [rows] = await db.query("SHOW TABLES");
+  const list = rows as Array<Record<string, string>>;
+  if (list.length === 0) return [];
+  const key = Object.keys(list[0] ?? {})[0];
+  return list.map((row) => String(row[key] ?? "")).filter(isValidAcreditadosTableName);
 }
 
 function rowToParams(eventPerson: AccreditedRow): string[] {
@@ -293,4 +328,26 @@ export function buildAcreditadosMysqlXlsxBuffer(dataRows: string[][]): Buffer {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "ACREDITADOS");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+export async function syncEventToAcreditadosMysql(event: {
+  id: string;
+  name: string;
+  slug?: string | null;
+  googleSheetName?: string | null;
+  googleSpreadsheetId?: string | null;
+}): Promise<{ tableName: string }> {
+  const ref = await ensureEventAcreditadosTable(event);
+  const { prisma } = await import("../../lib/prisma");
+  const people = await prisma.eventPerson.findMany({
+    where: { eventId: event.id },
+    include: { person: true, accreditedByUser: { select: { id: true, name: true } } },
+    orderBy: [{ person: { lastName: "asc" } }, { person: { firstName: "asc" } }]
+  });
+  await dumpEventPeopleToMysql(ref.tableName, people);
+  logger.info(
+    { eventId: event.id, tableName: ref.tableName, rows: people.length },
+    "Evento volcado a MySQL ACREDITADOS"
+  );
+  return { tableName: ref.tableName };
 }

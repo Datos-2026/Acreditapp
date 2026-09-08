@@ -200,7 +200,7 @@ export function EditEventPage() {
             <ToggleField
               id="enableGoogleSheets"
               label="¿Volcar datos a phpMyAdmin?"
-              description="Se crea una tabla en la base ACREDITADOS para este evento y cada acreditado se envía ahí en tiempo real."
+              description="Solo para eventos CERRADOS: a los 30 días de cerrar se vuelca la nómina a una tabla en phpMyAdmin (base ACREDITADOS). Los eventos abiertos no se envían."
               checked={Boolean(enableGoogleSheets)}
               onChange={(checked) => setValue("enableGoogleSheets", checked, { shouldValidate: true })}
             />

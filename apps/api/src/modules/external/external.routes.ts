@@ -7,7 +7,6 @@ import { logger } from "../../lib/logger";
 import { AppError } from "../../middlewares/error-handler";
 import { requireExternalApiKey } from "../../middlewares/external-api-key";
 import { validateBody } from "../../middlewares/validate";
-import { ensureEventAcreditadosTable, isAcreditadosMysqlConfigured } from "../events/acreditados-mysql";
 
 const router = Router();
 
@@ -130,15 +129,6 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
         closedAt: status === EventStatus.closed ? new Date() : null
       }
     });
-    if (enableGoogleSheets && isAcreditadosMysqlConfigured()) {
-      try {
-        const created = await ensureEventAcreditadosTable(event);
-        event.googleSheetName = created.tableName;
-        event.googleSpreadsheetId = created.spreadsheetId;
-      } catch (err) {
-        logger.warn({ err, name }, "No se pudo crear la tabla MySQL ACREDITADOS al crear evento externo");
-      }
-    }
 
     await createAuditLog({
       req,

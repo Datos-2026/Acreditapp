@@ -74,7 +74,7 @@ export function GoogleSheetsStatusBar({ eventId, compact = false }: Props) {
         Base ACREDITADOS
       </h3>
       <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.875rem" }}>
-        Cada acreditación se vuelca en tiempo real a la tabla de este evento en phpMyAdmin (base ACREDITADOS).
+        La nómina se vuelca a phpMyAdmin (base ACREDITADOS) 30 días después de cerrar el evento.
       </p>
       <button
         type="button"

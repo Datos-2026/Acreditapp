@@ -3,10 +3,15 @@ import { prisma } from "../../lib/prisma";
 import { logger } from "../../lib/logger";
 import {
   ACREDITADOS_MYSQL_MARKER,
+  dropEventAcreditadosTable,
   dumpEventPeopleToMysql,
   ensureEventAcreditadosTable,
   formatMysqlError,
-  isAcreditadosMysqlConfigured
+  isAcreditadosMysqlConfigured,
+  isValidAcreditadosTableName,
+  listAcreditadosTableNames,
+  mysqlTableNameForEvent,
+  syncEventToAcreditadosMysql
 } from "./acreditados-mysql";
 
 export class ArchiveEventToSheetsError extends Error {
@@ -43,6 +48,26 @@ export function isEventDueForSheetsArchive(
   if (event.status !== EventStatus.closed && event.status !== "closed") return false;
   if (!event.closedAt) return false;
   return now.getTime() - event.closedAt.getTime() >= ARCHIVE_CLOSED_AFTER_MS;
+}
+
+/** Volcar / descargar MySQL: cerrado hace 30 días, o ya archivado. */
+export function isEligibleForAcreditadosMysqlDump(
+  event: {
+    status: EventStatus | string;
+    closedAt: Date | string | null;
+    archivedToSheetsAt?: Date | string | null;
+  },
+  now: Date = new Date()
+): boolean {
+  const status = String(event.status);
+  if (status === EventStatus.archived || status === "archived" || event.archivedToSheetsAt) {
+    return true;
+  }
+  if (status !== EventStatus.closed && status !== "closed") return false;
+  if (!event.closedAt) return false;
+  const closedAt = event.closedAt instanceof Date ? event.closedAt : new Date(event.closedAt);
+  if (Number.isNaN(closedAt.getTime())) return false;
+  return now.getTime() - closedAt.getTime() >= ARCHIVE_CLOSED_AFTER_MS;
 }
 
 async function dumpEventBase(event: {
@@ -175,4 +200,84 @@ export async function archiveClosedEventsDue(now: Date = new Date()): Promise<{ 
     }
   }
   return { archived, failed };
+}
+
+export async function reconcileAcreditadosMysql(): Promise<{
+  synced: number;
+  dropped: number;
+  failed: number;
+}> {
+  if (!isAcreditadosMysqlConfigured()) {
+    return { synced: 0, dropped: 0, failed: 0 };
+  }
+  const events = await prisma.event.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      closedAt: true,
+      archivedToSheetsAt: true,
+      googleSheetName: true,
+      googleSpreadsheetId: true
+    }
+  });
+  let synced = 0;
+  let dropped = 0;
+  let failed = 0;
+  for (const event of events) {
+    try {
+      if (isEligibleForAcreditadosMysqlDump(event)) {
+        await syncEventToAcreditadosMysql(event);
+        synced += 1;
+        continue;
+      }
+      const namesToDrop = new Set<string>();
+      if (isValidAcreditadosTableName(event.googleSheetName)) {
+        namesToDrop.add(event.googleSheetName!.trim());
+      }
+      const computed = mysqlTableNameForEvent(event.slug || event.name, event.id);
+      if (isValidAcreditadosTableName(computed)) {
+        namesToDrop.add(computed);
+      }
+      for (const tableName of namesToDrop) {
+        await dropEventAcreditadosTable(tableName);
+      }
+      if (namesToDrop.size > 0 || event.googleSheetName || event.googleSpreadsheetId === ACREDITADOS_MYSQL_MARKER) {
+        await prisma.event.update({
+          where: { id: event.id },
+          data: {
+            googleSheetName: null,
+            googleSpreadsheetId:
+              event.googleSpreadsheetId === ACREDITADOS_MYSQL_MARKER ? null : event.googleSpreadsheetId
+          }
+        });
+        dropped += 1;
+      }
+    } catch (err) {
+      failed += 1;
+      logger.error({ err, eventId: event.id, name: event.name }, "No se pudo reconciliar MySQL ACREDITADOS");
+    }
+  }
+  const keep = new Set<string>();
+  for (const event of events) {
+    if (!isEligibleForAcreditadosMysqlDump(event)) continue;
+    if (isValidAcreditadosTableName(event.googleSheetName)) {
+      keep.add(event.googleSheetName!.trim());
+    }
+    const computed = mysqlTableNameForEvent(event.slug || event.name, event.id);
+    if (isValidAcreditadosTableName(computed)) keep.add(computed);
+  }
+  try {
+    for (const tableName of await listAcreditadosTableNames()) {
+      if (keep.has(tableName)) continue;
+      await dropEventAcreditadosTable(tableName);
+      dropped += 1;
+    }
+  } catch (err) {
+    failed += 1;
+    logger.error({ err }, "No se pudieron limpiar tablas huérfanas de MySQL ACREDITADOS");
+  }
+  logger.info({ synced, dropped, failed, total: events.length }, "Reconciliación MySQL ACREDITADOS terminada");
+  return { synced, dropped, failed };
 }

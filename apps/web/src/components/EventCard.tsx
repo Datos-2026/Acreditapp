@@ -63,9 +63,7 @@ export function EventCard({ event }: Props) {
     };
   }, [menuOpen]);
 
-  const canDownloadAcreditadosBase = Boolean(
-    event.googleSheetName || event.enableGoogleSheets || event.googleSheetUrl
-  );
+  const canDownloadAcreditadosBase = Boolean(event.canDownloadAcreditadosBase);
 
   const downloadAcreditadosBase = async () => {
     setDownloadError(null);
@@ -148,10 +146,8 @@ export function EventCard({ event }: Props) {
       {event.status === "archived" || event.dataOffloaded ? (
         <p className="event-card__stats">
           {event.googleSheetName
-            ? `Base volcada a ACREDITADOS · ${event.googleSheetName}`
-            : event.googleSheetUrl
-              ? "Base operativa volcada a Google Sheets"
-              : "Evento archivado"}
+            ? `Base volcada a ACREDITADOS`
+            : "Evento archivado"}
         </p>
       ) : (
         <p className="event-card__stats">

@@ -13,7 +13,9 @@
     "db:migrate": "node scripts/run-prisma.cjs migrate deploy --schema prisma/schema.prisma",
     "db:migrate:dev": "node scripts/run-prisma.cjs migrate dev --schema prisma/schema.prisma",
     "db:push": "node scripts/run-prisma.cjs db push",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "base-acreditados:import": "tsx scripts/import-base-acreditados.ts",
+    "base-acreditados:reconcile": "tsx scripts/reconcile-base-acreditados.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
