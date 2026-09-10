@@ -293,6 +293,7 @@ export function EventDetailPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showDirectoryFueraConfirm, setShowDirectoryFueraConfirm] = useState(false);
   const [accreditMesa, setAccreditMesa] = useState("");
+  const [fueraManualMesa, setFueraManualMesa] = useState("");
   const [showFueraDeBaseModal, setShowFueraDeBaseModal] = useState(false);
   const [showFueraManualForm, setShowFueraManualForm] = useState(false);
   const [fueraDeBaseSuccess, setFueraDeBaseSuccess] = useState<{
@@ -401,7 +402,7 @@ export function EventDetailPage() {
   const mesasStatsQuery = useQuery({
     queryKey: ["mesas", id],
     queryFn: async () => (await api.get<MesaStatsDto>(`/events/${id}/mesas/stats`)).data,
-    enabled: enableMesas && mesasRequired && tab === "Acreditar",
+    enabled: enableMesas && mesasRequired && (tab === "Acreditar" || tab === "Fuera de base"),
     refetchInterval: 15_000
   });
 
@@ -792,12 +793,23 @@ export function EventDetailPage() {
     }
   });
 
-  const manualMutation = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => (await api.post(`/events/${id}/people/manual`, payload)).data,
+  const fueraTabManualAndAccreditMutation = useMutation({
+    mutationFn: async ({ values, mesa }: { values: Record<string, unknown>; mesa?: number }) => {
+      const created = await api.post<{ id: string }>(`/events/${id}/people/manual`, values);
+      await api.post(`/events/${id}/people/${created.data.id}/accredit`, {
+        ...(mesa != null ? { mesa } : {})
+      });
+      return created.data;
+    },
     onSuccess: () => {
-      setUiNotice("Alta fuera de base registrada.");
+      setFueraManualMesa("");
+      setUiNotice(
+        mesasRequired ? "Persona registrada, acreditada y asignada a mesa." : "Persona registrada y acreditada fuera de base."
+      );
       void queryClient.invalidateQueries({ queryKey: ["people", id] });
       void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+      void queryClient.invalidateQueries({ queryKey: ["stats", id] });
+      void queryClient.invalidateQueries({ queryKey: ["mesas", id] });
     }
   });
 
@@ -2067,7 +2079,11 @@ export function EventDetailPage() {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setShowFueraManualForm((v) => !v)}
+                  onClick={() => {
+                    setShowFueraManualForm((v) => !v);
+                    setFueraManualMesa("");
+                    fueraTabManualAndAccreditMutation.reset();
+                  }}
                 >
                   <Icon name="person_add" />
                   {showFueraManualForm ? "Ocultar formulario de alta" : "Registrar nuevo fuera de base"}
@@ -2092,11 +2108,48 @@ export function EventDetailPage() {
           <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
             {showFueraManualForm ? (
               <div style={{ marginBottom: "1.5rem" }}>
+                {mesasRequired ? (
+                  <div className="card" style={{ marginBottom: "0.75rem" }}>
+                    <MesaSelect
+                      id="fuera-tab-manual-mesa"
+                      mesaCount={mesaCount}
+                      value={fueraManualMesa}
+                      onChange={setFueraManualMesa}
+                      mesaStats={mesaStatsRows}
+                      showCountsSummary
+                      prominent
+                    />
+                  </div>
+                ) : null}
                 <ManualPersonForm
-                  onSubmit={(values) => manualMutation.mutate(values as unknown as Record<string, unknown>)}
+                  submitLabel={
+                    fueraTabManualAndAccreditMutation.isPending
+                      ? "Procesando…"
+                      : mesasRequired && !fueraManualMesa
+                        ? "Elegí una mesa para continuar"
+                        : mesasRequired
+                          ? "Registrar, acreditar y asignar mesa"
+                          : "Crear persona manual"
+                  }
+                  submitDisabled={
+                    fueraTabManualAndAccreditMutation.isPending ||
+                    (mesasRequired && !fueraManualMesa)
+                  }
+                  submitDisabledHint={
+                    mesasRequired && !fueraManualMesa
+                      ? "La mesa es obligatoria para registrar fuera de base."
+                      : undefined
+                  }
+                  onSubmit={(values) => {
+                    if (mesasRequired && !fueraManualMesa) return;
+                    fueraTabManualAndAccreditMutation.mutate({
+                      values: values as unknown as Record<string, unknown>,
+                      mesa: mesasRequired ? Number(fueraManualMesa) : undefined
+                    });
+                  }}
                 />
-                {manualMutation.isError ? (
-                  <p className="message-error">No se pudo registrar la persona fuera de base.</p>
+                {fueraTabManualAndAccreditMutation.isError ? (
+                  <p className="message-error">No se pudo registrar/acreditar la persona fuera de base.</p>
                 ) : null}
               </div>
             ) : null}
@@ -2110,6 +2163,16 @@ export function EventDetailPage() {
                 { key: "cuil", header: documentColumnLabel(eventKind), render: (row) => displayPersonDocument(row.person, eventKind) },
                 { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
                 { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
+                ...(mesasRequired
+                  ? ([
+                      {
+                        key: "mesa",
+                        header: "Mesa",
+                        render: (row: { extraData?: Record<string, unknown> | null }) =>
+                          vecinoMesaFromExtra(row.extraData)
+                      }
+                    ] as const)
+                  : []),
                 {
                   key: "fecha",
                   header: "Acreditado",
