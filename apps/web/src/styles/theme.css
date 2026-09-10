@@ -2993,9 +2993,108 @@ a.tab-btn--informe {
 }
 
 .manual-person-form__submit-hint {
-  margin: -0.2rem 0 0;
+  margin: 0;
   font-size: 0.8rem;
-  text-align: center;
+}
+
+.manual-person-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 52rem;
+}
+
+.manual-person-form__header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.manual-person-form__header p {
+  margin: 0.35rem 0 0;
+  color: var(--on-surface-variant);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 48ch;
+}
+
+.manual-person-form__mesa {
+  width: 100%;
+}
+
+.manual-person-form__mesa .mesa-select,
+.manual-person-form__mesa .mesa-select--prominent {
+  margin: 0;
+}
+
+.manual-person-form__mesa .mesa-select--prominent {
+  padding: 0.9rem 1rem;
+  box-shadow: none;
+}
+
+.manual-person-form__mesa .mesa-select--prominent .mesa-select__control {
+  max-width: 20rem;
+  min-height: 2.75rem;
+  margin-top: 0.65rem;
+}
+
+.manual-person-form__mesa .mesa-select-summary {
+  margin-top: 0.5rem;
+}
+
+.manual-person-form__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.manual-person-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.manual-person-form__field--full {
+  grid-column: 1 / -1;
+}
+
+.manual-person-form__field .field-label {
+  margin: 0;
+}
+
+.manual-person-form__optional {
+  color: var(--on-surface-variant);
+  font-weight: 600;
+}
+
+.manual-person-form__field textarea.input {
+  min-height: 88px;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(194, 199, 204, 0.35);
+  background: var(--surface-container-lowest);
+  resize: vertical;
+}
+
+.manual-person-form__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
+}
+
+@media (max-width: 700px) {
+  .manual-person-form__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-person-form__mesa .mesa-select--prominent .mesa-select__control {
+    max-width: none;
+  }
 }
 
 .mesa-panel-compact {

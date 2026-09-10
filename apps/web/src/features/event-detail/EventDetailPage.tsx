@@ -2118,7 +2118,7 @@ export function EventDetailPage() {
                         value={fueraManualMesa}
                         onChange={setFueraManualMesa}
                         mesaStats={mesaStatsRows}
-                        showCountsSummary
+                        showCountsSummary={false}
                         prominent
                       />
                     ) : enableMesas ? (
