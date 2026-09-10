@@ -2110,24 +2110,27 @@ export function EventDetailPage() {
               <div style={{ marginBottom: "1.5rem" }}>
                 <ManualPersonForm
                   mesaSection={
-                    enableMesas ? (
-                      mesaCount > 0 ? (
-                        <MesaSelect
-                          id="fuera-tab-manual-mesa"
-                          mesaCount={mesaCount}
-                          value={fueraManualMesa}
-                          onChange={setFueraManualMesa}
-                          mesaStats={mesaStatsRows}
-                          showCountsSummary
-                          prominent
-                        />
-                      ) : (
-                        <p className="message-warning" style={{ margin: 0 }}>
-                          Este evento tiene mesas habilitadas, pero todavía no hay cantidad configurada. Definila en
-                          Acreditar (panel de mesas) o en Configuración para poder asignar mesa acá.
-                        </p>
-                      )
-                    ) : undefined
+                    mesasRequired ? (
+                      <MesaSelect
+                        id="fuera-tab-manual-mesa"
+                        mesaCount={mesaCount}
+                        value={fueraManualMesa}
+                        onChange={setFueraManualMesa}
+                        mesaStats={mesaStatsRows}
+                        showCountsSummary
+                        prominent
+                      />
+                    ) : enableMesas ? (
+                      <p className="message-warning" style={{ margin: 0 }}>
+                        Mesas habilitadas, pero falta la cantidad. Configurala en la pestaña Acreditar (panel de mesas) o
+                        en Configuración.
+                      </p>
+                    ) : (
+                      <p className="message-warning" style={{ margin: 0 }}>
+                        Este evento no tiene modalidad de mesas activa. Activala en Configuración («¿Necesitás mesas?»)
+                        para poder asignar mesa al registrar fuera de base.
+                      </p>
+                    )
                   }
                   submitLabel={
                     fueraTabManualAndAccreditMutation.isPending
@@ -2145,9 +2148,7 @@ export function EventDetailPage() {
                   submitDisabledHint={
                     mesasRequired && !fueraManualMesa
                       ? "La mesa es obligatoria para registrar fuera de base."
-                      : enableMesas && mesaCount < 1
-                        ? "Configurá la cantidad de mesas para poder registrar con mesa."
-                        : undefined
+                      : undefined
                   }
                   onSubmit={(values) => {
                     if (mesasRequired && !fueraManualMesa) return;

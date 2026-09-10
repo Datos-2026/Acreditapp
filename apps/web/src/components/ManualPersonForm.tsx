@@ -35,6 +35,7 @@ export function ManualPersonForm({
   return (
     <form className="card form-grid" onSubmit={handleSubmit(onSubmit)}>
       <h3>Registrar fuera de base</h3>
+      {mesaSection ? <div className="manual-person-form__mesa">{mesaSection}</div> : null}
       <label className="label-md field-label" htmlFor="manual-cuil-dni">
         CUIL o DNI
       </label>
@@ -51,7 +52,6 @@ export function ManualPersonForm({
       <input className="input input--boxed" placeholder="Email (opcional)" {...register("email")} />
       <input className="input input--boxed" placeholder="Teléfono (opcional)" {...register("phone")} />
       <textarea className="input" placeholder="Observaciones (opcional)" {...register("notes")} />
-      {mesaSection ? <div className="manual-person-form__mesa">{mesaSection}</div> : null}
       <button className="btn btn-primary" type="submit" disabled={submitDisabled}>
         {submitLabel}
       </button>
