@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { manualPersonFormSchema, type ManualPersonFormValues } from "../lib/manualPersonFormSchema";
@@ -9,6 +9,8 @@ type Props = {
   submitLabel?: string;
   submitDisabled?: boolean;
   submitDisabledHint?: string;
+  /** Bloque opcional (ej. selector de mesa) dentro del formulario de Fuera de base. */
+  mesaSection?: ReactNode;
 };
 
 export function ManualPersonForm({
@@ -16,7 +18,8 @@ export function ManualPersonForm({
   initialCuilRaw = "",
   submitLabel = "Crear persona manual",
   submitDisabled = false,
-  submitDisabledHint
+  submitDisabledHint,
+  mesaSection
 }: Props) {
   const { register, handleSubmit, formState, reset } = useForm<ManualPersonFormValues>({
     resolver: zodResolver(manualPersonFormSchema),
@@ -48,6 +51,7 @@ export function ManualPersonForm({
       <input className="input input--boxed" placeholder="Email (opcional)" {...register("email")} />
       <input className="input input--boxed" placeholder="Teléfono (opcional)" {...register("phone")} />
       <textarea className="input" placeholder="Observaciones (opcional)" {...register("notes")} />
+      {mesaSection ? <div className="manual-person-form__mesa">{mesaSection}</div> : null}
       <button className="btn btn-primary" type="submit" disabled={submitDisabled}>
         {submitLabel}
       </button>

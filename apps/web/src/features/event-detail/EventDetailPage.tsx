@@ -2108,20 +2108,27 @@ export function EventDetailPage() {
           <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ACREDITADOR"]}>
             {showFueraManualForm ? (
               <div style={{ marginBottom: "1.5rem" }}>
-                {mesasRequired ? (
-                  <div className="card" style={{ marginBottom: "0.75rem" }}>
-                    <MesaSelect
-                      id="fuera-tab-manual-mesa"
-                      mesaCount={mesaCount}
-                      value={fueraManualMesa}
-                      onChange={setFueraManualMesa}
-                      mesaStats={mesaStatsRows}
-                      showCountsSummary
-                      prominent
-                    />
-                  </div>
-                ) : null}
                 <ManualPersonForm
+                  mesaSection={
+                    enableMesas ? (
+                      mesaCount > 0 ? (
+                        <MesaSelect
+                          id="fuera-tab-manual-mesa"
+                          mesaCount={mesaCount}
+                          value={fueraManualMesa}
+                          onChange={setFueraManualMesa}
+                          mesaStats={mesaStatsRows}
+                          showCountsSummary
+                          prominent
+                        />
+                      ) : (
+                        <p className="message-warning" style={{ margin: 0 }}>
+                          Este evento tiene mesas habilitadas, pero todavía no hay cantidad configurada. Definila en
+                          Acreditar (panel de mesas) o en Configuración para poder asignar mesa acá.
+                        </p>
+                      )
+                    ) : undefined
+                  }
                   submitLabel={
                     fueraTabManualAndAccreditMutation.isPending
                       ? "Procesando…"
@@ -2138,7 +2145,9 @@ export function EventDetailPage() {
                   submitDisabledHint={
                     mesasRequired && !fueraManualMesa
                       ? "La mesa es obligatoria para registrar fuera de base."
-                      : undefined
+                      : enableMesas && mesaCount < 1
+                        ? "Configurá la cantidad de mesas para poder registrar con mesa."
+                        : undefined
                   }
                   onSubmit={(values) => {
                     if (mesasRequired && !fueraManualMesa) return;
