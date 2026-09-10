@@ -491,6 +491,7 @@ export function EventDetailPage() {
     status: string;
     accreditedAt: string | null;
     accreditedByUser: { name: string } | null;
+    extraData?: Record<string, unknown> | null;
   };
 
   const accreditedImportedQuery = useQuery({
@@ -2174,14 +2175,13 @@ export function EventDetailPage() {
                 { key: "apellido", header: "Apellido", render: (row) => row.person.lastName },
                 { key: "nombre", header: "Nombre", render: (row) => row.person.firstName },
                 ...(mesasRequired
-                  ? ([
+                  ? [
                       {
                         key: "mesa",
                         header: "Mesa",
-                        render: (row: { extraData?: Record<string, unknown> | null }) =>
-                          vecinoMesaFromExtra(row.extraData)
+                        render: (row: AccreditedRow) => vecinoMesaFromExtra(row.extraData)
                       }
-                    ] as const)
+                    ]
                   : []),
                 {
                   key: "fecha",
