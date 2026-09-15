@@ -177,4 +177,42 @@ router.post("/events", validateBody(createExternalEventSchema), async (req, res,
   }
 });
 
+/**
+ * GET /api/v1/external/events/:id/stats
+ * Totales de convocados (personas cargadas) y asistidos (acreditados).
+ */
+router.get("/events/:id/stats", async (req, res, next) => {
+  try {
+    const eventId = String(req.params.id ?? "").trim();
+    if (!eventId) {
+      throw new AppError("id de evento requerido", 400);
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, name: true, status: true }
+    });
+    if (!event) {
+      throw new AppError("Evento no encontrado en Acreditapp", 404);
+    }
+
+    const [convocados, asistidos] = await Promise.all([
+      prisma.eventPerson.count({ where: { eventId } }),
+      prisma.eventPerson.count({ where: { eventId, status: "accredited" } })
+    ]);
+
+    res.json({
+      id: event.id,
+      name: event.name,
+      status: event.status,
+      convocados,
+      asistidos,
+      total: convocados,
+      accredited: asistidos
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export const externalRoutes = router;
