@@ -76,7 +76,7 @@ export function splitReferenteName(name: string): { firstName: string; lastName:
 }
 
 /**
- * CUIL sintético (prefijo 99) para referentes identificados por email.
+ * CUIL sintético (prefijo 99) para titulares de grupo identificados por email.
  * Distinto del sintético por DNI (prefijo 00).
  */
 export function syntheticCuilFromEmail(email: string): string {

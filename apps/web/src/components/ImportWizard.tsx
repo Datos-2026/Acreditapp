@@ -189,9 +189,12 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
         <p className="lead" style={{ marginBottom: "0.75rem" }}>
           {enableReferentes ? (
             <>
-              Evento con <strong>referentes</strong>. Columnas esperadas:{" "}
-              <strong>Nombre, Apellido, DNI, Escuela, Sección, Oferta, Referente</strong> (Nombre | mail |
-              teléfono). Podés subir <strong>varios Excel</strong>: cada archivo se suma a la lista.
+              Evento con <strong>grupos</strong>. Columnas esperadas:{" "}
+              <strong>
+                Nombre, Apellido, DNI, Área / Institución, Sección, Rol / Oferta, Titular del grupo
+              </strong>{" "}
+              (Titular: Nombre | mail | teléfono; misma clave = mismo grupo). Podés subir{" "}
+              <strong>varios Excel</strong>: cada archivo se suma a la lista.
             </>
           ) : isVecinos ? (
             <>
@@ -313,7 +316,7 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
                 {filePreviews.map((p) => (
                   <li key={p.originalFilename}>
                     <strong>{p.originalFilename}</strong> — {String(p.summary.validRows)} válidas ·{" "}
-                    {asReferentes(p.summary).length} referente(s)
+                    {asReferentes(p.summary).length} grupo(s)
                   </li>
                 ))}
               </ul>
@@ -326,7 +329,7 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
           {referentes.length > 0 ? (
             <div className="card" style={{ marginTop: "1rem" }}>
               <h3 style={{ marginTop: 0 }}>
-                Referentes detectados ({referentes.length}
+                Grupos detectados ({referentes.length}
                 {filePreviews.length > 1 ? ` en ${filePreviews.length} archivos` : ""})
               </h3>
               <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>

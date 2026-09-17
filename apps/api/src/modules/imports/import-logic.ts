@@ -314,7 +314,14 @@ export function buildVecinoExtraData(
 export function extractReferenteRaw(extraData: Record<string, unknown>): unknown {
   for (const [header, value] of Object.entries(extraData)) {
     const normalized = normalizeImportSheetHeader(header);
-    if (normalized === "referente" || normalized.startsWith("referente")) {
+    if (
+      normalized === "referente" ||
+      normalized.startsWith("referente") ||
+      normalized === "titular del grupo" ||
+      normalized === "titular" ||
+      normalized.startsWith("titular del grupo") ||
+      normalized === "titular grupo"
+    ) {
       return value;
     }
   }

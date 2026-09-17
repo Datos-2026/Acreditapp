@@ -1423,7 +1423,7 @@ router.get("/:id/referentes/:referenteId", async (req, res, next) => {
         }
       }
     });
-    if (!referente) throw new AppError("Referente no encontrado", 404);
+    if (!referente) throw new AppError("Grupo no encontrado", 404);
     res.json({
       id: referente.id,
       name: referente.name,

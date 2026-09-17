@@ -109,4 +109,86 @@ describe("buildArchiveSheetRow", () => {
     expect(row[12]).toBe("2");
     expect(row[15]).toBe("N° 1");
   });
+
+  it("lee Área / Institución y Titular del grupo desde extraData", () => {
+    const row = buildArchiveSheetRow({
+      id: "ep3",
+      eventId: "ev1",
+      personId: "p3",
+      source: "imported",
+      importBatchId: null,
+      status: "accredited",
+      accreditedAt: new Date("2026-08-01T15:00:00.000Z"),
+      accreditedByUserId: null,
+      accreditationNotes: null,
+      eventNotes: null,
+      extraData: {
+        "Área / Institución": "Club Norte",
+        "Titular del grupo": "Padre | padre@test.com | 111"
+      },
+      isReferente: false,
+      referenteId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      person: {
+        id: "p3",
+        cuilNormalized: "20111111112",
+        cuilRaw: "20-11111111-2",
+        dni: "11111111",
+        firstName: "Hijo",
+        lastName: "Uno",
+        email: null,
+        phone: null,
+        company: null,
+        position: null,
+        address: null,
+        comuna: null,
+        notes: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      accreditedByUser: null
+    } as never);
+    expect(row[15]).toBe("Club Norte");
+    expect(row[18]).toBe("Padre | padre@test.com | 111");
+  });
+
+  it("etiqueta convocados no acreditados", () => {
+    const row = buildArchiveSheetRow({
+      id: "ep2",
+      eventId: "ev1",
+      personId: "p2",
+      source: "imported",
+      importBatchId: null,
+      status: "pending",
+      accreditedAt: null,
+      accreditedByUserId: null,
+      accreditationNotes: null,
+      eventNotes: null,
+      extraData: {},
+      isReferente: false,
+      referenteId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      person: {
+        id: "p2",
+        cuilNormalized: "20987654321",
+        cuilRaw: "20-98765432-1",
+        dni: "98765432",
+        firstName: "Luis",
+        lastName: "Convocado",
+        email: null,
+        phone: null,
+        company: null,
+        position: null,
+        address: null,
+        comuna: null,
+        notes: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      accreditedByUser: null
+    } as never);
+    expect(row[10]).toBe("Convocado no acreditado");
+  });
 });

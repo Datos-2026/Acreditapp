@@ -60,8 +60,8 @@ function appPersonCandidate(row: EventPersonRow, source: string): PersonCandidat
     phone: row.person.phone,
     emailForm: row.person.email,
     personalAddress: row.person.address ?? extraValue(row.extraData, "direccion", "Dirección"),
-    areaForm: row.person.company ?? extraValue(row.extraData, "empresa", "ministerio", "escuela"),
-    roleForm: row.person.position ?? extraValue(row.extraData, "cargo", "rol", "oferta"),
+    areaForm: row.person.company ?? extraValue(row.extraData, "empresa", "ministerio", "escuela", "área", "area", "Área / Institución", "institucion"),
+    roleForm: row.person.position ?? extraValue(row.extraData, "cargo", "rol", "oferta", "Rol / Oferta"),
     fallbackSeed: `${source}:${row.id}`,
     source
   };

@@ -159,8 +159,8 @@ export function CreateEventPage() {
             />
             <ToggleField
               id="enableReferentes"
-              label="¿Trabaja con referentes?"
-              description="Al acreditar, se puede buscar un referente y acreditar a las personas a cargo."
+              label="¿Trabaja con grupos?"
+              description="Al acreditar, se puede buscar al titular del grupo y acreditar a las personas a cargo."
               checked={enableReferentes}
               onChange={(checked) => setValue("enableReferentes", checked, { shouldValidate: true })}
             />

@@ -275,7 +275,7 @@ function ReferenteAccreditSuccessCard({
       <h4 className="fuera-base-success-card__title">Grupo acreditado</h4>
       <p className="fuera-base-success-card__name">{name}</p>
       <p className="fuera-base-success-card__hint">
-        Se acreditaron {accreditedCount} persona{accreditedCount === 1 ? "" : "s"} (referente y a cargo).
+        Se acreditaron {accreditedCount} persona{accreditedCount === 1 ? "" : "s"} (titular y a cargo).
       </p>
     </div>
   );
@@ -742,7 +742,7 @@ export function EventDetailPage() {
     onSuccess: (data) => {
       const group = referenteGroupQuery.data;
       setReferenteSuccess({
-        name: group?.name ?? "Referente",
+        name: group?.name ?? "Titular",
         accreditedCount: data.accredited
       });
       setShowReferenteConfirm(false);
@@ -1174,8 +1174,8 @@ export function EventDetailPage() {
                 placeholder={
                   enableReferentes
                     ? isVecinosEvent
-                      ? "DNI / Apellido / referente / mail"
-                      : "CUIL / DNI / Apellido / referente / mail"
+                      ? "DNI / Apellido / titular / mail"
+                      : "CUIL / DNI / Apellido / titular / mail"
                     : isVecinosEvent
                       ? "DNI / Apellido"
                       : "CUIL / DNI / Apellido"
@@ -1252,7 +1252,7 @@ export function EventDetailPage() {
             </div>
             <p className="search-cuil-form__hint search-help">
               {enableReferentes
-                ? "Buscá un referente (nombre o mail) o una persona suelta. Enter acredita si hay un solo resultado."
+                ? "Buscá un grupo por titular (nombre o mail) o una persona suelta. Enter acredita si hay un solo resultado."
                 : "Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo)."}
             </p>
           </section>
@@ -1275,7 +1275,7 @@ export function EventDetailPage() {
             {debouncedSearch.length < 2 ? (
               <p style={{ color: "var(--on-surface-variant)", fontWeight: 600, margin: 0 }}>
                 {enableReferentes
-                  ? "Escribí al menos 2 caracteres para buscar un referente o una persona."
+                  ? "Escribí al menos 2 caracteres para buscar un grupo o una persona."
                   : "Escribí al menos 2 caracteres para buscar personas en la base."}
               </p>
             ) : livePeopleQuery.isLoading || exactCuilQuery.isLoading || (enableReferentes && referentesQuery.isLoading) ? (
@@ -1298,7 +1298,7 @@ export function EventDetailPage() {
               <>
                 {enableReferentes && referenteRows.length > 0 ? (
                   <>
-                    <p className="label-md field-label">Referentes ({referenteRows.length})</p>
+                    <p className="label-md field-label">Grupos ({referenteRows.length})</p>
                     <div className="live-results-grid live-results-grid--dark" style={{ marginBottom: "1rem" }}>
                       {referenteRows.map((row) => (
                         <button
@@ -1317,7 +1317,7 @@ export function EventDetailPage() {
                           <p className="live-result-card__meta">
                             {row.peopleCount} a cargo · {row.pendingCount} pendientes
                           </p>
-                          <span className="status-pill status-pill--draft">Referente</span>
+                          <span className="status-pill status-pill--draft">Titular</span>
                         </button>
                       ))}
                     </div>
@@ -1407,10 +1407,10 @@ export function EventDetailPage() {
               referenteGroupQuery.isLoading ? (
                 <p className="page-state">Cargando grupo…</p>
               ) : referenteGroupQuery.isError || !referenteGroupQuery.data ? (
-                <p className="message-error">No se pudo cargar el grupo del referente.</p>
+                <p className="message-error">No se pudo cargar el grupo.</p>
               ) : (
                 <div className="accred-detail referente-group-card">
-                  <p className="label-md field-label">Referente</p>
+                  <p className="label-md field-label">Titular del grupo</p>
                   <h3 className="accred-detail__name" style={{ marginTop: 0 }}>
                     {referenteGroupQuery.data.name}
                   </h3>
@@ -1432,7 +1432,7 @@ export function EventDetailPage() {
                     Personas a cargo ({referenteGroupQuery.data.people.length})
                   </p>
                   <p style={{ margin: "0 0 0.75rem", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-                    Todas las pendientes vienen tildadas. Destildá a quien no esté con el referente.
+                    Todas las pendientes vienen tildadas. Destildá a quien no esté con el titular.
                   </p>
                   <ul className="referente-people-list">
                     {referenteGroupQuery.data.people.map((person) => {
@@ -1671,11 +1671,11 @@ export function EventDetailPage() {
           </ConfirmDialog>
           <ConfirmDialog
             open={showReferenteConfirm}
-            title="Acreditar grupo del referente"
+            title="Acreditar grupo"
             message={
               referenteGroupQuery.data
                 ? `Se acredita a ${referenteGroupQuery.data.name} y a las personas tildadas a cargo.`
-                : "Se acredita al referente y a las personas seleccionadas."
+                : "Se acredita al titular y a las personas seleccionadas."
             }
             confirmLabel={
               accreditBulkMutation.isPending
@@ -2640,7 +2640,7 @@ export function EventDetailPage() {
       <ConfirmTypeDialog
         open={showArchiveToSheets}
         title="Exportar a ACREDITADOS y borrar del sistema"
-        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a una tabla en phpMyAdmin (base ACREDITADOS). Después se borran personas, importaciones y referentes de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
+        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a una tabla en phpMyAdmin (base ACREDITADOS). Después se borran personas, importaciones y grupos de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
         requiredText={eventQuery.data?.name ?? ""}
         requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setShowArchiveToSheets(false)}

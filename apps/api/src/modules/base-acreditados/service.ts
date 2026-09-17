@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import type { RowDataPacket } from "mysql2/promise";
 import { logger } from "../../lib/logger";
@@ -6,22 +5,26 @@ import {
   isValidCuil,
   normalizeDni,
   normalizeEmail,
-  normalizeEventFingerprint,
   normalizePhone,
   normalizeText,
-  resolveIdentity
+  resolveIdentity,
+  type IdentityQuality,
+  type ResolvedIdentity
 } from "./identity";
 import {
   baseExecute,
   baseQuery,
-  completeCarga,
-  createCarga,
+  baseTableExists,
   dotacionDatabaseName,
   dotacionTableName,
-  insertRawRows,
-  openMysqlServerConnection,
-  prepareRawTable
+  openMysqlServerConnection
 } from "./mysql";
+import {
+  PERSONA_ESTADO_CONVOCADO,
+  appendEventoAsistido,
+  mergePersonaEstado,
+  normalizePersonaEstado
+} from "./policy";
 
 export type PersonCandidate = {
   cuil?: unknown;
@@ -137,35 +140,6 @@ function dateValue(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function jsonSources(existing: unknown, source: string): string {
-  let sources: string[] = [];
-  if (Array.isArray(existing)) sources = existing.map(String);
-  else if (typeof existing === "string") {
-    try {
-      const parsed = JSON.parse(existing);
-      if (Array.isArray(parsed)) sources = parsed.map(String);
-    } catch {
-      sources = [];
-    }
-  }
-  return JSON.stringify([...new Set([...sources, source])]);
-}
-
-function aliasesFor(candidate: PersonCandidate): string[] {
-  const aliases: string[] = [];
-  const cuil = String(candidate.cuil ?? "").replace(/\D/g, "");
-  const dni = normalizeDni(candidate.dni);
-  const emails = [candidate.emailLaboral, candidate.emailForm, candidate.emailPersonal, candidate.emailMia]
-    .map(normalizeEmail)
-    .filter((value): value is string => Boolean(value));
-  const phone = normalizePhone(candidate.phone);
-  if (isValidCuil(cuil)) aliases.push(`cuil:${cuil}`);
-  if (dni) aliases.push(`dni:${dni}`);
-  for (const email of emails) aliases.push(`email:${email}`);
-  if (phone) aliases.push(`telefono:${phone}`);
-  return [...new Set(aliases)];
-}
-
 function candidateEmail(candidate: PersonCandidate): string | null {
   return (
     normalizeEmail(candidate.emailLaboral) ??
@@ -266,21 +240,53 @@ export function isInDotacion(candidate: PersonCandidate, index: DotacionIndex | 
   return Boolean(findDotacion(identity, index));
 }
 
-function personDbValues(candidate: PersonCandidate, dotacion: DotacionIndex | null) {
-  const email = candidateEmail(candidate);
-  const identity = resolveIdentity({
-    cuil: candidate.cuil,
-    dni: candidate.dni,
-    email,
-    phone: candidate.phone,
-    fallbackSeed: candidate.fallbackSeed
+const IDENTITY_QUALITY_RANK: Record<IdentityQuality, number> = {
+  cuil: 5,
+  dni: 4,
+  email: 3,
+  telefono: 2,
+  sin_clave_confiable: 1
+};
+
+type ExistingPersona = {
+  id: number;
+  identity_key: string;
+  cuil: string | null;
+  dni: string | null;
+  estado: string | null;
+  eventos_asistidos: string | null;
+  fuentes_json: unknown;
+  en_dotacion: boolean;
+};
+
+type PersonWriteExtras = {
+  identityKey?: string;
+  estado?: string | null;
+  eventosAsistidos?: string | null;
+  fuentesJson?: string;
+};
+
+function identityOf(person: PersonCandidate): ResolvedIdentity {
+  return resolveIdentity({
+    cuil: person.cuil,
+    dni: person.dni,
+    email: candidateEmail(person),
+    phone: person.phone,
+    fallbackSeed: person.fallbackSeed
   });
+}
+
+function personDbValues(
+  candidate: PersonCandidate,
+  dotacion: DotacionIndex | null,
+  extras?: PersonWriteExtras
+) {
+  const identity = identityOf(candidate);
   const dot = findDotacion(identity, dotacion);
   return {
     identity,
-    aliases: [...new Set([identity.key, ...aliasesFor(candidate)])],
     fields: [
-      identity.key,
+      extras?.identityKey ?? identity.key,
       identity.quality,
       identity.cuil,
       identity.dni,
@@ -302,90 +308,90 @@ function personDbValues(candidate: PersonCandidate, dotacion: DotacionIndex | nu
       dot?.descRep ?? normalizeText(candidate.descRep),
       dot?.pathNombres ?? normalizeText(candidate.pathNombres),
       Boolean(dot),
+      extras?.estado ?? null,
+      extras?.eventosAsistidos ?? null,
       normalizeText(candidate.estadoRegistro),
       normalizeText(candidate.observacionesCalidad),
-      JSON.stringify([candidate.source])
+      extras?.fuentesJson ?? JSON.stringify([candidate.source])
     ]
   };
 }
 
+async function findExistingPersonas(identities: ResolvedIdentity[]): Promise<ExistingPersona[]> {
+  if (!identities.length) return [];
+  const found: ExistingPersona[] = [];
+  const seen = new Set<number>();
+  const chunkSize = 300;
+  for (let offset = 0; offset < identities.length; offset += chunkSize) {
+    const chunk = identities.slice(offset, offset + chunkSize);
+    const keys = [...new Set(chunk.map((identity) => identity.key))];
+    const cuils = [...new Set(chunk.map((identity) => identity.cuil).filter((value): value is string => Boolean(value)))];
+    const dnis = [...new Set(chunk.map((identity) => identity.dni).filter((value): value is string => Boolean(value)))];
+    const conditions = [`identity_key IN (${keys.map(() => "?").join(", ")})`];
+    const params: unknown[] = [...keys];
+    if (cuils.length) {
+      conditions.push(`(cuil IS NOT NULL AND cuil IN (${cuils.map(() => "?").join(", ")}))`);
+      params.push(...cuils);
+    }
+    if (dnis.length) {
+      conditions.push(`(dni IS NOT NULL AND dni IN (${dnis.map(() => "?").join(", ")}))`);
+      params.push(...dnis);
+    }
+    const rows = await baseQuery<
+      (RowDataPacket & {
+        id: number;
+        identity_key: string;
+        cuil: string | null;
+        dni: string | null;
+        estado: string | null;
+        eventos_asistidos: string | null;
+        fuentes_json: unknown;
+        en_dotacion: number | boolean;
+      })[]
+    >(
+      `SELECT id, identity_key, cuil, dni, estado, eventos_asistidos, fuentes_json, en_dotacion
+       FROM personas WHERE ${conditions.join(" OR ")}`,
+      params
+    );
+    for (const row of rows) {
+      const id = Number(row.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      found.push({
+        id,
+        identity_key: row.identity_key,
+        cuil: row.cuil,
+        dni: row.dni,
+        estado: row.estado,
+        eventos_asistidos: row.eventos_asistidos,
+        fuentes_json: row.fuentes_json,
+        en_dotacion: Boolean(row.en_dotacion)
+      });
+    }
+  }
+  return found;
+}
+
+function matchExistingPersona(
+  identity: ResolvedIdentity,
+  existing: ExistingPersona[]
+): ExistingPersona | null {
+  return (
+    existing.find((row) => row.identity_key === identity.key) ??
+    (identity.cuil ? existing.find((row) => row.cuil === identity.cuil) : undefined) ??
+    (identity.dni ? existing.find((row) => row.dni === identity.dni) : undefined) ??
+    null
+  );
+}
+
 export async function upsertPerson(candidate: PersonCandidate, dotacion: DotacionIndex | null): Promise<number> {
-  const email = candidateEmail(candidate);
-  const identity = resolveIdentity({
-    cuil: candidate.cuil,
-    dni: candidate.dni,
-    email,
-    phone: candidate.phone,
-    fallbackSeed: candidate.fallbackSeed
-  });
-  const aliases = [...new Set([identity.key, ...aliasesFor(candidate)])];
-  const strongAliases = aliases.filter((alias) => alias.startsWith("cuil:") || alias.startsWith("dni:"));
-  const lookupAliases = strongAliases.length ? strongAliases : aliases;
-  const placeholders = lookupAliases.map(() => "?").join(", ");
-  let personId: number | null = null;
-  if (lookupAliases.length) {
-    const found = await baseQuery<(RowDataPacket & { persona_id: number })[]>(
-      `SELECT persona_id FROM persona_aliases WHERE alias_key IN (${placeholders}) LIMIT 1`,
-      lookupAliases
-    );
-    personId = found[0] ? Number(found[0].persona_id) : null;
-  }
-  if (!personId && (identity.cuil || identity.dni)) {
-    const found = await baseQuery<(RowDataPacket & { id: number })[]>(
-      "SELECT id FROM personas WHERE (cuil IS NOT NULL AND cuil = ?) OR (dni IS NOT NULL AND dni = ?) LIMIT 1",
-      [identity.cuil, identity.dni]
-    );
-    personId = found[0] ? Number(found[0].id) : null;
-  }
-
-  const values = personDbValues(candidate, dotacion).fields;
-
-  if (!personId) {
-    const result = await baseExecute(
-      `INSERT INTO personas (
-        identity_key, calidad_identidad, cuil, dni, nombre, apellido, telefono,
-        email_form, mail_personal, mail_mia, mail_laboral, fecha_nacimiento, sexo,
-        domicilio_laboral, domicilio_personal, area_form, rol_form, area_dotacion,
-        rol_dotacion, desc_rep, path_nombres, en_dotacion, estado_registro,
-        observaciones_calidad, fuentes_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      values
-    );
-    personId = result.insertId;
-  } else {
-    const current = await baseQuery<(RowDataPacket & { fuentes_json: unknown })[]>(
-      "SELECT fuentes_json FROM personas WHERE id = ?",
-      [personId]
-    );
-    await baseExecute(
-      `UPDATE personas SET
-        cuil = COALESCE(?, cuil), dni = COALESCE(?, dni),
-        nombre = COALESCE(?, nombre), apellido = COALESCE(?, apellido),
-        telefono = COALESCE(?, telefono), email_form = COALESCE(?, email_form),
-        mail_personal = COALESCE(?, mail_personal), mail_mia = COALESCE(?, mail_mia),
-        mail_laboral = COALESCE(?, mail_laboral), fecha_nacimiento = COALESCE(?, fecha_nacimiento),
-        sexo = COALESCE(?, sexo), domicilio_laboral = COALESCE(?, domicilio_laboral),
-        domicilio_personal = COALESCE(?, domicilio_personal), area_form = COALESCE(?, area_form),
-        rol_form = COALESCE(?, rol_form), area_dotacion = COALESCE(?, area_dotacion),
-        rol_dotacion = COALESCE(?, rol_dotacion), desc_rep = COALESCE(?, desc_rep),
-        path_nombres = COALESCE(?, path_nombres), en_dotacion = en_dotacion OR ?,
-        estado_registro = COALESCE(?, estado_registro),
-        observaciones_calidad = COALESCE(?, observaciones_calidad), fuentes_json = ?
-       WHERE id = ?`,
-      [
-        ...values.slice(2, 24),
-        jsonSources(current[0]?.fuentes_json, candidate.source),
-        personId
-      ]
-    );
-  }
-  for (const alias of aliases) {
-    await baseExecute(
-      "INSERT INTO persona_aliases (alias_key, persona_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE persona_id = persona_id",
-      [alias, personId]
-    );
-  }
-  return personId;
+  const identity = identityOf(candidate);
+  const existing = matchExistingPersona(identity, await findExistingPersonas([identity]));
+  const fields = personDbValues(candidate, dotacion, { identityKey: existing?.identity_key }).fields;
+  await bulkWritePersonas([fields]);
+  if (existing) return existing.id;
+  const inserted = matchExistingPersona(identity, await findExistingPersonas([identity]));
+  return inserted?.id ?? 0;
 }
 
 const PERSON_COLUMNS = [
@@ -411,150 +417,108 @@ const PERSON_COLUMNS = [
   "desc_rep",
   "path_nombres",
   "en_dotacion",
+  "estado",
+  "eventos_asistidos",
   "estado_registro",
   "observaciones_calidad",
   "fuentes_json"
 ] as const;
 
-async function rebuildPersonAliases(): Promise<Map<string, number>> {
-  const people = await baseQuery<
-    (RowDataPacket & {
-      id: number;
-      identity_key: string;
-      cuil: string | null;
-      dni: string | null;
-      telefono: string | null;
-      email_form: string | null;
-      mail_personal: string | null;
-      mail_mia: string | null;
-      mail_laboral: string | null;
-    })[]
-  >(
-    `SELECT id, identity_key, cuil, dni, telefono, email_form, mail_personal, mail_mia, mail_laboral
-     FROM personas`
-  );
-  const aliases: Array<[string, number]> = [];
-  for (const person of people) {
-    const keys = [
-      person.identity_key,
-      person.cuil ? `cuil:${person.cuil}` : null,
-      person.dni ? `dni:${person.dni}` : null,
-      ...[person.email_form, person.mail_personal, person.mail_mia, person.mail_laboral]
-        .filter(Boolean)
-        .map((email) => `email:${String(email).toLowerCase()}`),
-      person.telefono ? `telefono:${person.telefono}` : null
-    ].filter((value): value is string => Boolean(value));
-    for (const key of new Set(keys)) aliases.push([key, Number(person.id)]);
-  }
-  const chunkSize = 500;
-  for (let offset = 0; offset < aliases.length; offset += chunkSize) {
-    const chunk = aliases.slice(offset, offset + chunkSize);
+function personUpdateSql(): string {
+  return PERSON_COLUMNS.slice(2)
+    .map((column) => {
+      if (column === "en_dotacion") return "`en_dotacion` = `en_dotacion` OR VALUES(`en_dotacion`)";
+      if (column === "fuentes_json") {
+        return "`fuentes_json` = JSON_MERGE_PRESERVE(COALESCE(`fuentes_json`, JSON_ARRAY()), VALUES(`fuentes_json`))";
+      }
+      return `\`${column}\` = COALESCE(VALUES(\`${column}\`), \`${column}\`)`;
+    })
+    .join(", ");
+}
+
+async function bulkWritePersonas(rows: unknown[][]): Promise<void> {
+  if (!rows.length) return;
+  const quotedColumns = PERSON_COLUMNS.map((column) => `\`${column}\``).join(", ");
+  const updateSql = personUpdateSql();
+  const chunkSize = 150;
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const chunk = rows.slice(offset, offset + chunkSize);
+    const placeholders = chunk.map(() => `(${PERSON_COLUMNS.map(() => "?").join(", ")})`).join(", ");
     await baseExecute(
-      `INSERT IGNORE INTO persona_aliases (alias_key, persona_id) VALUES ${chunk.map(() => "(?, ?)").join(", ")}`,
+      `INSERT INTO personas (${quotedColumns}) VALUES ${placeholders} ON DUPLICATE KEY UPDATE ${updateSql}`,
       chunk.flat()
     );
   }
-  const stored = await baseQuery<(RowDataPacket & { alias_key: string; persona_id: number })[]>(
-    "SELECT alias_key, persona_id FROM persona_aliases"
-  );
-  return new Map(stored.map((row) => [row.alias_key, Number(row.persona_id)]));
 }
 
-async function bulkUpsertPeople(
-  candidates: PersonCandidate[],
-  dotacion: DotacionIndex
-): Promise<Map<string, number>> {
-  const chunkSize = 150;
-  const quotedColumns = PERSON_COLUMNS.map((column) => `\`${column}\``).join(", ");
-  const updateColumns = PERSON_COLUMNS.slice(2, -1)
-    .map((column) => `\`${column}\` = COALESCE(VALUES(\`${column}\`), \`${column}\`)`)
-    .join(", ");
-  for (let offset = 0; offset < candidates.length; offset += chunkSize) {
-    const chunk = candidates.slice(offset, offset + chunkSize);
-    const placeholders = chunk
-      .map(() => `(${PERSON_COLUMNS.map(() => "?").join(", ")})`)
-      .join(", ");
-    await baseExecute(
-      `INSERT INTO personas (${quotedColumns}) VALUES ${placeholders}
-       ON DUPLICATE KEY UPDATE ${updateColumns},
-       fuentes_json = JSON_MERGE_PRESERVE(COALESCE(fuentes_json, JSON_ARRAY()), VALUES(fuentes_json))`,
-      chunk.flatMap((candidate) => personDbValues(candidate, dotacion).fields)
-    );
-  }
-  return rebuildPersonAliases();
+function coalesceUnknown(current: unknown, incoming: unknown): unknown {
+  return incoming == null || incoming === "" ? current : incoming;
 }
 
-async function upsertEvent(candidate: AttendanceCandidate): Promise<number> {
-  const date = dateValue(candidate.eventDate);
-  const fingerprint = normalizeEventFingerprint(candidate.eventName, date);
-  const existing = await baseQuery<(RowDataPacket & { id: number; fuentes_json: unknown })[]>(
-    `SELECT id, fuentes_json FROM eventos
-     WHERE (? IS NOT NULL AND app_event_id = ?) OR fingerprint = ? LIMIT 1`,
-    [candidate.appEventId ?? null, candidate.appEventId ?? null, fingerprint]
-  );
-  if (existing[0]) {
-    await baseExecute(
-      `UPDATE eventos SET nombre = COALESCE(?, nombre), tipo = COALESCE(?, tipo),
-       fecha = COALESCE(?, fecha), app_event_id = COALESCE(?, app_event_id),
-       mysql_table_name = COALESCE(?, mysql_table_name), fuentes_json = ? WHERE id = ?`,
-      [
-        normalizeText(candidate.eventName),
-        normalizeText(candidate.eventType),
-        date ? date.toISOString().slice(0, 10) : null,
-        candidate.appEventId ?? null,
-        candidate.mysqlTableName ?? null,
-        jsonSources(existing[0].fuentes_json, candidate.source),
-        existing[0].id
-      ]
-    );
-    return Number(existing[0].id);
-  }
-  const result = await baseExecute(
-    `INSERT INTO eventos (fingerprint, nombre, tipo, fecha, app_event_id, mysql_table_name, fuentes_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      fingerprint,
-      normalizeText(candidate.eventName) ?? "Evento",
-      normalizeText(candidate.eventType),
-      date ? date.toISOString().slice(0, 10) : null,
-      candidate.appEventId ?? null,
-      candidate.mysqlTableName ?? null,
-      JSON.stringify([candidate.source])
-    ]
-  );
-  return result.insertId;
+function mergePersonCandidate(base: PersonCandidate, extra: PersonCandidate): PersonCandidate {
+  return {
+    cuil: coalesceUnknown(base.cuil, extra.cuil),
+    dni: coalesceUnknown(base.dni, extra.dni),
+    firstName: coalesceUnknown(base.firstName, extra.firstName),
+    lastName: coalesceUnknown(base.lastName, extra.lastName),
+    phone: coalesceUnknown(base.phone, extra.phone),
+    emailForm: coalesceUnknown(base.emailForm, extra.emailForm),
+    emailPersonal: coalesceUnknown(base.emailPersonal, extra.emailPersonal),
+    emailMia: coalesceUnknown(base.emailMia, extra.emailMia),
+    emailLaboral: coalesceUnknown(base.emailLaboral, extra.emailLaboral),
+    birthDate: coalesceUnknown(base.birthDate, extra.birthDate),
+    sex: coalesceUnknown(base.sex, extra.sex),
+    workAddress: coalesceUnknown(base.workAddress, extra.workAddress),
+    personalAddress: coalesceUnknown(base.personalAddress, extra.personalAddress),
+    areaForm: coalesceUnknown(base.areaForm, extra.areaForm),
+    roleForm: coalesceUnknown(base.roleForm, extra.roleForm),
+    areaDotacion: coalesceUnknown(base.areaDotacion, extra.areaDotacion),
+    roleDotacion: coalesceUnknown(base.roleDotacion, extra.roleDotacion),
+    descRep: coalesceUnknown(base.descRep, extra.descRep),
+    pathNombres: coalesceUnknown(base.pathNombres, extra.pathNombres),
+    estadoRegistro: coalesceUnknown(base.estadoRegistro, extra.estadoRegistro),
+    observacionesCalidad: coalesceUnknown(base.observacionesCalidad, extra.observacionesCalidad),
+    fallbackSeed: base.fallbackSeed,
+    source: extra.source
+  };
 }
 
-export async function upsertAttendance(candidate: AttendanceCandidate, dotacion: DotacionIndex | null): Promise<void> {
-  const personId = await upsertPerson(candidate.person, dotacion);
-  const eventId = await upsertEvent(candidate);
-  const existing = await baseQuery<(RowDataPacket & { fuentes_json: unknown })[]>(
-    "SELECT fuentes_json FROM asistencias WHERE persona_id = ? AND evento_id = ?",
-    [personId, eventId]
+function personaEstadoFromAttendance(candidate: AttendanceCandidate): string {
+  return (
+    normalizePersonaEstado(normalizeText(candidate.status), {
+      attended: booleanValue(candidate.attended) === true,
+      outOfBase: booleanValue(candidate.outOfBase) === true
+    }) ?? PERSONA_ESTADO_CONVOCADO
   );
-  const sources = jsonSources(existing[0]?.fuentes_json, candidate.source);
-  await baseExecute(
-    `INSERT INTO asistencias (
-      persona_id, evento_id, inscripto, asistio, fuera_de_base, estado, fecha_acreditacion, fuentes_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      inscripto = COALESCE(VALUES(inscripto), inscripto),
-      asistio = asistio OR VALUES(asistio),
-      fuera_de_base = COALESCE(VALUES(fuera_de_base), fuera_de_base),
-      estado = COALESCE(VALUES(estado), estado),
-      fecha_acreditacion = COALESCE(VALUES(fecha_acreditacion), fecha_acreditacion),
-      fuentes_json = VALUES(fuentes_json)`,
-    [
-      personId,
-      eventId,
-      booleanValue(candidate.registered),
-      booleanValue(candidate.attended) ?? true,
-      booleanValue(candidate.outOfBase),
-      normalizeText(candidate.status),
-      dateValue(candidate.accreditedAt),
-      sources
-    ]
-  );
+}
+
+type AttendanceGroup = {
+  identityKey: string;
+  identity: ResolvedIdentity;
+  person: PersonCandidate;
+  estado: string | null;
+  attendedEvents: Array<{ name: string; time: number }>;
+  sources: string[];
+  existing: ExistingPersona | null;
+};
+
+function indexAttendanceGroup(
+  group: AttendanceGroup,
+  byKey: Map<string, AttendanceGroup>,
+  byCuil: Map<string, AttendanceGroup>,
+  byDni: Map<string, AttendanceGroup>
+): void {
+  byKey.set(group.identityKey, group);
+  byKey.set(group.identity.key, group);
+  if (group.identity.cuil) byCuil.set(group.identity.cuil, group);
+  if (group.identity.dni) byDni.set(group.identity.dni, group);
+}
+
+export async function upsertAttendance(
+  candidate: AttendanceCandidate,
+  dotacion: DotacionIndex | null
+): Promise<void> {
+  await bulkUpsertAttendances([candidate], dotacion);
 }
 
 function historicalPerson(row: Record<string, unknown>, rowNumber: number, source: string): PersonCandidate {
@@ -587,85 +551,81 @@ function historicalPerson(row: Record<string, unknown>, rowNumber: number, sourc
 
 export async function bulkUpsertAttendances(
   candidates: AttendanceCandidate[],
-  dotacion: DotacionIndex
+  dotacion: DotacionIndex | null
 ): Promise<number> {
-  const aliasMap = await bulkUpsertPeople(
-    candidates.map((candidate) => candidate.person),
-    dotacion
-  );
-  const eventCandidates = new Map<string, AttendanceCandidate>();
-  for (const candidate of candidates) {
-    eventCandidates.set(normalizeEventFingerprint(candidate.eventName, dateValue(candidate.eventDate)), candidate);
-  }
-  for (const candidate of eventCandidates.values()) await upsertEvent(candidate);
-  const eventRows = await baseQuery<(RowDataPacket & { id: number; fingerprint: string })[]>(
-    "SELECT id, fingerprint FROM eventos"
-  );
-  const eventMap = new Map(eventRows.map((row) => [row.fingerprint, Number(row.id)]));
+  if (!candidates.length) return 0;
+  const identities = candidates.map((candidate) => identityOf(candidate.person));
+  const existingRows = await findExistingPersonas(identities);
+  const groups: AttendanceGroup[] = [];
+  const byKey = new Map<string, AttendanceGroup>();
+  const byCuil = new Map<string, AttendanceGroup>();
+  const byDni = new Map<string, AttendanceGroup>();
 
-  const unique = new Map<
-    string,
-    {
-      personId: number;
-      eventId: number;
-      registered: boolean | null;
-      attended: boolean;
-      outOfBase: boolean | null;
-      status: string | null;
-      accreditedAt: Date | null;
-      source: string;
-    }
-  >();
   for (const candidate of candidates) {
-    const person = candidate.person;
-    const identity = resolveIdentity({
-      cuil: person.cuil,
-      dni: person.dni,
-      email: candidateEmail(person),
-      phone: person.phone,
-      fallbackSeed: person.fallbackSeed
-    });
-    const personId = aliasMap.get(identity.key);
-    const eventId = eventMap.get(normalizeEventFingerprint(candidate.eventName, dateValue(candidate.eventDate)));
-    if (!personId || !eventId) continue;
-    unique.set(`${personId}:${eventId}`, {
-      personId,
-      eventId,
-      registered: booleanValue(candidate.registered),
-      attended: booleanValue(candidate.attended) ?? true,
-      outOfBase: booleanValue(candidate.outOfBase),
-      status: normalizeText(candidate.status),
-      accreditedAt: dateValue(candidate.accreditedAt),
-      source: candidate.source
-    });
+    const identity = identityOf(candidate.person);
+    const existing = matchExistingPersona(identity, existingRows);
+    const found =
+      (existing ? groups.find((group) => group.existing?.id === existing.id) : undefined) ??
+      byKey.get(identity.key) ??
+      (identity.cuil ? byCuil.get(identity.cuil) : undefined) ??
+      (identity.dni ? byDni.get(identity.dni) : undefined);
+
+    if (found) {
+      found.person = mergePersonCandidate(found.person, candidate.person);
+      if (IDENTITY_QUALITY_RANK[identity.quality] > IDENTITY_QUALITY_RANK[found.identity.quality]) {
+        found.identity = identity;
+        if (!found.existing) found.identityKey = identity.key;
+      }
+      found.estado = mergePersonaEstado(found.estado, personaEstadoFromAttendance(candidate));
+      const eventName = normalizeText(candidate.eventName);
+      if (eventName && booleanValue(candidate.attended) === true) {
+        found.attendedEvents.push({
+          name: eventName,
+          time: dateValue(candidate.eventDate)?.getTime() ?? Number.MAX_SAFE_INTEGER
+        });
+      }
+      if (!found.sources.includes(candidate.source)) found.sources.push(candidate.source);
+      indexAttendanceGroup(found, byKey, byCuil, byDni);
+      continue;
+    }
+
+    const group: AttendanceGroup = {
+      identityKey: existing?.identity_key ?? identity.key,
+      identity,
+      person: candidate.person,
+      estado: personaEstadoFromAttendance(candidate),
+      attendedEvents:
+        booleanValue(candidate.attended) === true && normalizeText(candidate.eventName)
+          ? [
+              {
+                name: normalizeText(candidate.eventName) as string,
+                time: dateValue(candidate.eventDate)?.getTime() ?? Number.MAX_SAFE_INTEGER
+              }
+            ]
+          : [],
+      sources: [candidate.source],
+      existing
+    };
+    groups.push(group);
+    indexAttendanceGroup(group, byKey, byCuil, byDni);
   }
-  const rows = [...unique.values()];
-  const chunkSize = 300;
-  for (let offset = 0; offset < rows.length; offset += chunkSize) {
-    const chunk = rows.slice(offset, offset + chunkSize);
-    await baseExecute(
-      `INSERT INTO asistencias (
-        persona_id, evento_id, inscripto, asistio, fuera_de_base, estado, fecha_acreditacion, fuentes_json
-       ) VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}
-       ON DUPLICATE KEY UPDATE inscripto = COALESCE(VALUES(inscripto), inscripto),
-       asistio = asistio OR VALUES(asistio),
-       fuera_de_base = COALESCE(VALUES(fuera_de_base), fuera_de_base),
-       estado = COALESCE(VALUES(estado), estado),
-       fecha_acreditacion = COALESCE(VALUES(fecha_acreditacion), fecha_acreditacion),
-       fuentes_json = JSON_MERGE_PRESERVE(COALESCE(fuentes_json, JSON_ARRAY()), VALUES(fuentes_json))`,
-      chunk.flatMap((row) => [
-        row.personId,
-        row.eventId,
-        row.registered,
-        row.attended,
-        row.outOfBase,
-        row.status,
-        row.accreditedAt,
-        JSON.stringify([row.source])
-      ])
-    );
-  }
-  return rows.length;
+
+  const rows = groups.map((group) => {
+    const eventos = [...group.attendedEvents]
+      .sort((left, right) => left.time - right.time)
+      .reduce(
+        (current, event) => appendEventoAsistido(current, event.name),
+        group.existing?.eventos_asistidos ?? null
+      );
+    return personDbValues(group.person, dotacion, {
+      identityKey: group.identityKey,
+      estado: mergePersonaEstado(group.existing?.estado, group.estado),
+      eventosAsistidos: eventos,
+      fuentesJson: JSON.stringify(group.sources)
+    }).fields;
+  });
+  await bulkWritePersonas(rows);
+  return groups.length;
 }
 
 async function importHistoricalAttendances(
@@ -731,27 +691,10 @@ export async function importHistoricalWorkbook(
   filename: string,
   dotacion: DotacionIndex
 ): Promise<Record<string, unknown>> {
-  const hash = createHash("sha256").update(buffer).digest("hex");
   const workbook = XLSX.read(buffer, { cellDates: true });
-  const carga = await createCarga("xlsx_historico", filename, hash);
-  if (carga.alreadyCompleted) {
-    const existingSheet = workbook.Sheets.DETALLE_EVENTO_PERSONA;
-    if (!existingSheet) throw new Error("Falta la hoja DETALLE_EVENTO_PERSONA");
-    const existingDetail = XLSX.utils.sheet_to_json<Record<string, unknown>>(existingSheet, { defval: null });
-    const attendanceRows = await importHistoricalAttendances(existingDetail, dotacion);
-    return {
-      skippedRaw: true,
-      reason: "La hoja raw ya existía; se refrescaron personas y asistencias",
-      cargaId: carga.id,
-      attendanceRows
-    };
-  }
   const sheet = workbook.Sheets.DETALLE_EVENTO_PERSONA;
   if (!sheet) throw new Error("Falta la hoja DETALLE_EVENTO_PERSONA");
   const detail = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
-  const headers = detail[0] ? Object.keys(detail[0]) : [];
-  const raw = await prepareRawTable("DETALLE_EVENTO_PERSONA", headers);
-  await insertRawRows(raw.tableName, raw.columns, carga.id, detail);
   const rawRows = detail.length;
 
   let dotacionMatches = 0;
@@ -771,31 +714,25 @@ export async function importHistoricalWorkbook(
   }
   const attendanceRows = await importHistoricalAttendances(detail, dotacion);
   const details = {
+    filename,
     sheets: 1,
     rawRows,
     attendanceRows,
     dotacionMatches,
     dotacionTable: `${dotacion.database}.${dotacion.table}`
   };
-  await completeCarga(carga.id, rawRows, details);
-  logger.info({ cargaId: carga.id, ...details }, "Consolidado histórico importado a BASE_ACREDITADOS");
-  return { cargaId: carga.id, ...details };
+  logger.info(details, "Consolidado histórico importado a BASE_ACREDITADOS");
+  return details;
 }
 
 export async function getBaseAcreditadosStats(): Promise<Record<string, unknown>> {
-  const totals = await baseQuery<
-    (RowDataPacket & {
-      personas: number;
-      en_dotacion: number;
-      eventos: number;
-      asistencias: number;
-    })[]
-  >(
+  const totals = await baseQuery<(RowDataPacket & { personas: number; en_dotacion: number })[]>(
     `SELECT
       (SELECT COUNT(*) FROM personas) AS personas,
-      (SELECT COUNT(*) FROM personas WHERE en_dotacion = TRUE) AS en_dotacion,
-      (SELECT COUNT(*) FROM eventos) AS eventos,
-      (SELECT COUNT(*) FROM asistencias WHERE asistio = TRUE) AS asistencias`
+      (SELECT COUNT(*) FROM personas WHERE en_dotacion = TRUE) AS en_dotacion`
+  );
+  const estadoRows = await baseQuery<(RowDataPacket & { estado: string | null; total: number })[]>(
+    "SELECT estado, COUNT(*) AS total FROM personas GROUP BY estado ORDER BY total DESC"
   );
   const qualityRows = await baseQuery<(RowDataPacket & { calidad_identidad: string; total: number })[]>(
     "SELECT calidad_identidad, COUNT(*) AS total FROM personas GROUP BY calidad_identidad ORDER BY total DESC"
@@ -813,11 +750,77 @@ export async function getBaseAcreditadosStats(): Promise<Record<string, unknown>
   );
   return {
     ...totals[0],
+    estado: Object.fromEntries(estadoRows.map((row) => [row.estado ?? "sin_estado", Number(row.total)])),
     calidadIdentidad: Object.fromEntries(
       qualityRows.map((row) => [row.calidad_identidad, Number(row.total)])
     ),
     duplicateCuilGroups: Number(duplicateRows[0]?.duplicate_cuil_groups ?? 0),
     duplicateDniGroups: Number(duplicateRows[0]?.duplicate_dni_groups ?? 0)
   };
+}
+
+/** Completa estado y eventos_asistidos de filas ya cargadas usando asistencias/eventos históricas. */
+export async function backfillPersonaEstadoYEventosFromLegacy(): Promise<{
+  updated: number;
+  skippedNoLegacy: boolean;
+}> {
+  const hasAsistencias = await baseTableExists("asistencias");
+  const hasEventos = await baseTableExists("eventos");
+  if (!hasAsistencias || !hasEventos) {
+    logger.info("BASE_ACREDITADOS no tiene tablas históricas; se omite el backfill de personas");
+    return { updated: 0, skippedNoLegacy: true };
+  }
+
+  await baseExecute("SET SESSION group_concat_max_len = 32768");
+  const eventosResult = await baseExecute(
+    `UPDATE personas p
+     INNER JOIN (
+       SELECT a.persona_id,
+         GROUP_CONCAT(e.nombre ORDER BY e.fecha SEPARATOR ', ') AS eventos
+       FROM asistencias a
+       INNER JOIN eventos e ON e.id = a.evento_id
+       WHERE a.asistio = 1 AND NULLIF(TRIM(e.nombre), '') IS NOT NULL
+       GROUP BY a.persona_id
+     ) x ON x.persona_id = p.id
+     SET p.eventos_asistidos = CASE
+       WHEN p.eventos_asistidos IS NULL OR TRIM(p.eventos_asistidos) = '' THEN x.eventos
+       ELSE p.eventos_asistidos
+     END`
+  );
+  const estadoResult = await baseExecute(
+    `UPDATE personas p
+     INNER JOIN (
+       SELECT persona_id,
+         CASE MAX(
+           CASE
+             WHEN LOWER(TRIM(COALESCE(estado, ''))) LIKE '%acredit%'
+               AND LOWER(TRIM(COALESCE(estado, ''))) NOT LIKE '%no acredit%' THEN 3
+             WHEN asistio = 1 AND IFNULL(fuera_de_base, 0) = 0 THEN 3
+             WHEN LOWER(TRIM(COALESCE(estado, ''))) IN ('pendiente', 'convocado no acreditado')
+               OR LOWER(TRIM(COALESCE(estado, ''))) LIKE '%convocado%' THEN 2
+             WHEN asistio = 0 THEN 2
+             WHEN LOWER(TRIM(COALESCE(estado, ''))) LIKE '%fuera%'
+               OR IFNULL(fuera_de_base, 0) = 1 THEN 1
+             ELSE 0
+           END
+         )
+           WHEN 3 THEN 'Acreditado'
+           WHEN 2 THEN 'Convocado no acreditado'
+           WHEN 1 THEN 'Fuera de base'
+           ELSE NULL
+         END AS estado_calc
+       FROM asistencias
+       GROUP BY persona_id
+     ) x ON x.persona_id = p.id
+     SET p.estado = CASE
+       WHEN p.estado = 'Acreditado' OR x.estado_calc = 'Acreditado' THEN 'Acreditado'
+       WHEN p.estado = 'Convocado no acreditado' OR x.estado_calc = 'Convocado no acreditado'
+         THEN 'Convocado no acreditado'
+       ELSE COALESCE(x.estado_calc, p.estado)
+     END`
+  );
+  const updated = Number(eventosResult.affectedRows ?? 0) + Number(estadoResult.affectedRows ?? 0);
+  logger.info({ updated }, "Backfill de estado y eventos_asistidos en personas");
+  return { updated, skippedNoLegacy: false };
 }
 

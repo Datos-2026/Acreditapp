@@ -8,6 +8,7 @@ import {
   ensureBaseAcreditadosSchema,
   isBaseAcreditadosConfigured
 } from "./modules/base-acreditados/mysql";
+import { backfillPersonaEstadoYEventosFromLegacy } from "./modules/base-acreditados/service";
 import { reconcileClosedEventsToBase } from "./modules/base-acreditados/sync";
 
 const host = process.env.LISTEN_HOST ?? "0.0.0.0";
@@ -36,7 +37,11 @@ app.listen(env.API_PORT, host, () => {
   }
   if (isBaseAcreditadosConfigured()) {
     void ensureBaseAcreditadosSchema()
-      .then(() => reconcileClosedEventsToBase())
+      .then(() => backfillPersonaEstadoYEventosFromLegacy())
+      .then((backfill) => {
+        logger.info(backfill, "Backfill de estado y eventos_asistidos en BASE_ACREDITADOS");
+        return reconcileClosedEventsToBase();
+      })
       .then((result) => {
         logger.info(result, "Reconciliación de eventos cerrados con BASE_ACREDITADOS terminada");
       })

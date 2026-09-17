@@ -181,3 +181,14 @@ describe("mergeImportExtraData", () => {
     ).toEqual({ mesa: 3, Escuela: "B", Referente: "X | a@b.c | 111" });
   });
 });
+
+describe("extractReferenteRaw", () => {
+  it("lee Titular del grupo y mantiene compatibilidad con Referente", async () => {
+    const { extractReferenteRaw } = await import("./import-logic");
+    expect(extractReferenteRaw({ "Titular del grupo": "Ana | ana@test.com | 1100000000" })).toBe(
+      "Ana | ana@test.com | 1100000000"
+    );
+    expect(extractReferenteRaw({ Referente: "Luis | luis@test.com" })).toBe("Luis | luis@test.com");
+    expect(extractReferenteRaw({ Titular: "Solo nombre" })).toBe("Solo nombre");
+  });
+});

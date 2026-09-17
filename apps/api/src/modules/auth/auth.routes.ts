@@ -48,20 +48,35 @@ router.post("/login", loginLimiter, validateBody(loginSchema), async (req, res, 
 router.post("/refresh", async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken as string | undefined;
+
+    const issueDevSession = async () => {
+      const user = await ensureLocalDevWorkspace();
+      const tokens = await issueTokensForUser(user);
+      res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
+      res.json({ accessToken: tokens.accessToken });
+    };
+
     if (!refreshToken) {
       if (isDevSkipAuth()) {
-        const user = await ensureLocalDevWorkspace();
-        const tokens = await issueTokensForUser(user);
-        res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
-        res.json({ accessToken: tokens.accessToken });
+        await issueDevSession();
         return;
       }
       res.status(401).json({ message: "No autenticado" });
       return;
     }
-    const tokens = await refresh(refreshToken);
-    res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
-    res.json({ accessToken: tokens.accessToken });
+
+    try {
+      const tokens = await refresh(refreshToken);
+      res.cookie("refreshToken", tokens.refreshToken, refreshCookieOptions);
+      res.json({ accessToken: tokens.accessToken });
+    } catch (error) {
+      // Cookie inválida/expirada o DB caída: en local entrar igual con skip-auth
+      if (isDevSkipAuth()) {
+        await issueDevSession();
+        return;
+      }
+      throw error;
+    }
   } catch (error) {
     next(error);
   }

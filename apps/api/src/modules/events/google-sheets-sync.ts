@@ -39,10 +39,10 @@ export const ARCHIVE_SHEET_HEADER = [
   "Mesa",
   "Acreditado el",
   "Acreditado por",
-  "Escuela",
+  "Área / Institución",
   "Sección",
-  "Oferta",
-  "Referente"
+  "Rol / Oferta",
+  "Titular del grupo"
 ] as const;
 
 const SHEET_TITLE_MAX = 31;
@@ -437,7 +437,7 @@ export function buildArchiveSheetRow(eventPerson: AccreditedRow): string[] {
   const extra = (eventPerson.extraData ?? {}) as Record<string, unknown>;
   const mesa = String(extra.mesa ?? "").trim();
   const direccion = String(extra.direccion ?? eventPerson.person.address ?? "").trim();
-  const estado = eventPerson.status === "accredited" ? "Acreditado" : "Pendiente";
+  const estado = eventPerson.status === "accredited" ? "Acreditado" : "Convocado no acreditado";
   return [
     eventPerson.person.dni?.trim() ?? "",
     eventPerson.person.cuilNormalized ?? "",
@@ -447,17 +447,34 @@ export function buildArchiveSheetRow(eventPerson: AccreditedRow): string[] {
     eventPerson.person.phone ?? "",
     eventPerson.person.comuna ?? "",
     direccion,
-    eventPerson.person.company ?? extraString(extra, ["empresa", "ministerio", "escuela"]),
-    eventPerson.person.position ?? extraString(extra, ["cargo", "rol", "oferta"]),
+    eventPerson.person.company ??
+      extraString(extra, ["empresa", "ministerio", "escuela", "Escuela", "área", "area", "Área / Institución", "institucion", "institución"]),
+    eventPerson.person.position ?? extraString(extra, ["cargo", "rol", "oferta", "Oferta", "Rol / Oferta"]),
     estado,
     eventPerson.source === "manual" ? "Fuera de base" : "Base importada",
     mesa,
     formatAccreditedAt(eventPerson.accreditedAt),
     eventPerson.accreditedByUser?.name ?? "",
-    extraString(extra, ["escuela", "Escuela"]),
+    extraString(extra, [
+      "escuela",
+      "Escuela",
+      "área",
+      "area",
+      "Área / Institución",
+      "Área/Institución",
+      "institucion",
+      "institución"
+    ]),
     extraString(extra, ["sección", "seccion", "Sección"]),
-    extraString(extra, ["oferta", "Oferta"]),
-    extraString(extra, ["referente", "Referente"])
+    extraString(extra, ["oferta", "Oferta", "rol", "Rol / Oferta", "Rol/Oferta"]),
+    extraString(extra, [
+      "referente",
+      "Referente",
+      "titular del grupo",
+      "Titular del grupo",
+      "titular",
+      "Titular"
+    ])
   ];
 }
 
