@@ -193,7 +193,8 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
               <strong>
                 Nombre, Apellido, DNI, Área / Institución, Sección, Rol / Oferta, Titular del grupo
               </strong>{" "}
-              (Titular: Nombre | mail | teléfono; misma clave = mismo grupo). Podés subir{" "}
+              (Titular: Nombre | mail opcional | DNI opcional; también sirve solo nombre o solo DNI.
+              Misma clave = mismo grupo). Podés subir{" "}
               <strong>varios Excel</strong>: cada archivo se suma a la lista.
             </>
           ) : isVecinos ? (

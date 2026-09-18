@@ -1367,18 +1367,18 @@ router.get("/:id/referentes", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const q = String(req.query.q ?? "").trim();
-    if (q.length < 2) {
-      res.json({ total: 0, rows: [] });
-      return;
-    }
     const rows = await prisma.eventReferente.findMany({
       where: {
         eventId: req.params.id,
-        OR: [
-          { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { emailNormalized: { contains: q.toLowerCase() } }
-        ]
+        ...(q.length >= 2
+          ? {
+              OR: [
+                { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
+                { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
+                { emailNormalized: { contains: q.toLowerCase() } }
+              ]
+            }
+          : {})
       },
       include: {
         eventPerson: { select: { id: true, status: true } },
@@ -1386,7 +1386,7 @@ router.get("/:id/referentes", async (req, res, next) => {
         people: { select: { status: true } }
       },
       orderBy: { name: "asc" },
-      take: 50
+      take: q.length >= 2 ? 50 : 2000
     });
     res.json({
       total: rows.length,

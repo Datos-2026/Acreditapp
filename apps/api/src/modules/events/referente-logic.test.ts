@@ -6,23 +6,56 @@ import {
 } from "@gcba/shared";
 
 describe("parseReferenteCell", () => {
-  it("parsea Nombre | mail | teléfono", () => {
+  it("parsea Nombre | mail | DNI", () => {
     expect(
-      parseReferenteCell("Mariela Maccarone | Mariela.maccarone@bue.edu.ar | 1162459013")
+      parseReferenteCell("Mariela Maccarone | Mariela.maccarone@bue.edu.ar | 30111222")
     ).toEqual({
       name: "Mariela Maccarone",
       email: "Mariela.maccarone@bue.edu.ar",
-      phone: "1162459013",
+      dni: "30111222",
       emailNormalized: "mariela.maccarone@bue.edu.ar",
       missingEmail: false
     });
   });
 
-  it("agrupa por nombre si no hay mail", () => {
-    const parsed = parseReferenteCell("Juan Perez | 1122334455");
+  it("agrupa por DNI si no hay mail", () => {
+    const parsed = parseReferenteCell("Juan Perez | 30111222");
     expect(parsed?.missingEmail).toBe(true);
+    expect(parsed?.emailNormalized).toBe("dni:30111222");
+    expect(parsed?.dni).toBe("30111222");
+  });
+
+  it("no exige DNI: solo nombre o nombre + mail", () => {
+    expect(parseReferenteCell("Martín García")).toMatchObject({
+      name: "Martín García",
+      dni: null,
+      missingEmail: true
+    });
+    expect(parseReferenteCell("Martín García | martin@mail.com")).toMatchObject({
+      name: "Martín García",
+      email: "martin@mail.com",
+      dni: null,
+      missingEmail: false
+    });
+  });
+
+  it("acepta solo DNI como clave de grupo sin omitirlo", () => {
+    const parsed = parseReferenteCell("30111222");
+    expect(parsed).not.toBeNull();
+    expect(parsed?.emailNormalized).toBe("dni:30111222");
+    expect(parsed?.dni).toBe("30111222");
+  });
+
+  it("no traga el nombre si el DNI va sin pipes", () => {
+    const parsed = parseReferenteCell("Martín García 30111222");
+    expect(parsed?.name).toContain("Martín");
     expect(parsed?.emailNormalized.startsWith("nombre:")).toBe(true);
-    expect(parsed?.phone).toBe("1122334455");
+  });
+
+  it("ignora un teléfono largo legado y no lo mete en el nombre", () => {
+    const parsed = parseReferenteCell("Ana López | ana@mail.com | 1144556677");
+    expect(parsed?.dni).toBeNull();
+    expect(parsed?.name).toBe("Ana López");
   });
 });
 

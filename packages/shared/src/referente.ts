@@ -1,7 +1,8 @@
 export type ParsedReferente = {
   name: string;
   email: string | null;
-  phone: string | null;
+  /** DNI del titular (tercer campo del pipe). */
+  dni: string | null;
   emailNormalized: string;
   missingEmail: boolean;
 };
@@ -19,7 +20,7 @@ export function normalizeReferenteNameKey(name: string): string {
     .trim();
 }
 
-/** Parsea "Nombre | mail | teléfono" (orden libre de mail/tel). */
+/** Parsea "Nombre | mail | DNI" (orden libre de mail/DNI). Mail y DNI son opcionales. */
 export function parseReferenteCell(raw: unknown): ParsedReferente | null {
   const text = raw == null ? "" : String(raw).trim();
   if (!text) return null;
@@ -27,31 +28,42 @@ export function parseReferenteCell(raw: unknown): ParsedReferente | null {
   if (parts.length === 0) return null;
 
   let email: string | null = null;
-  let phone: string | null = null;
+  let dni: string | null = null;
   const nameParts: string[] = [];
   for (const part of parts) {
     if (!email && part.includes("@")) {
       email = part;
       continue;
     }
+    // DNI: solo dígitos (o con puntos/guiones), 7–8 cifras. No tragar nombres con DNI pegado.
     const digits = part.replace(/\D/g, "");
-    if (!phone && digits.length >= 8 && digits.length <= 15) {
-      phone = digits;
+    const hasLetters = /[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]/.test(part);
+    if (!hasLetters && digits.length >= 9 && digits.length <= 15) {
+      // Teléfono legado en el Excel: se ignora (el 3er campo es DNI).
+      continue;
+    }
+    if (!dni && !hasLetters && digits.length >= 7 && digits.length <= 8) {
+      dni = digits.replace(/^0+/, "") || digits;
       continue;
     }
     nameParts.push(part);
   }
 
-  const name = nameParts.join(" ").trim() || (email ? email.split("@")[0] : "");
+  let name = nameParts.join(" ").trim() || (email ? email.split("@")[0] : "");
+  if (!name && !email && dni) {
+    name = dni;
+  }
   if (!name && !email) return null;
   const missingEmail = !email;
   const emailNormalized = email
     ? normalizeReferenteEmail(email)
-    : `nombre:${normalizeReferenteNameKey(name)}`;
+    : dni
+      ? `dni:${dni}`
+      : `nombre:${normalizeReferenteNameKey(name)}`;
   return {
     name: name || emailNormalized,
     email,
-    phone,
+    dni,
     emailNormalized,
     missingEmail
   };

@@ -203,6 +203,7 @@ function formatTimelineTick(raw: string) {
 const tabs = [
   "Acreditar",
   "Personas",
+  "Grupos",
   "Acreditados",
   "Fuera de base",
   "Descargas",
@@ -216,6 +217,7 @@ const tabs = [
 const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
   Acreditar: "terminal",
   Personas: "personas",
+  Grupos: "grupos",
   Acreditados: "acreditados",
   "Fuera de base": "fuera-de-base",
   Descargas: "descargas",
@@ -229,6 +231,7 @@ const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
 const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
   terminal: "Acreditar",
   personas: "Personas",
+  grupos: "Grupos",
   acreditados: "Acreditados",
   "fuera-de-base": "Fuera de base",
   descargas: "Descargas",
@@ -305,6 +308,7 @@ export function EventDetailPage() {
   const [referenteCheckedIds, setReferenteCheckedIds] = useState<Set<string>>(new Set());
   const [showReferenteConfirm, setShowReferenteConfirm] = useState(false);
   const [referenteSuccess, setReferenteSuccess] = useState<{ name: string; accreditedCount: number } | null>(null);
+  const [gruposFilter, setGruposFilter] = useState("");
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
   const [uiNotice, setUiNotice] = useState<string | null>(null);
   const [uiNoticeIsError, setUiNoticeIsError] = useState(false);
@@ -421,16 +425,25 @@ export function EventDetailPage() {
     if (!enableNotes) {
       list = list.filter((t) => t !== "Notas");
     }
+    if (!enableReferentes) {
+      list = list.filter((t) => t !== "Grupos");
+    }
     if (dataOffloaded) {
       const archivedTabs = new Set<(typeof tabs)[number]>(["Dashboard", "Notas", "Configuración"]);
       list = list.filter((t) => archivedTabs.has(t));
     }
     return list;
-  }, [user?.role, isVecinosEvent, enableNotes, dataOffloaded]);
+  }, [user?.role, isVecinosEvent, enableNotes, enableReferentes, dataOffloaded]);
 
   useEffect(() => {
     if (tab === "Notas" && eventQuery.data && !eventQuery.data.enableNotes) {
       setSearchParams({ tab: "terminal" }, { replace: true });
+    }
+  }, [tab, eventQuery.data, setSearchParams]);
+
+  useEffect(() => {
+    if (tab === "Grupos" && eventQuery.data && !eventQuery.data.enableReferentes) {
+      setSearchParams({ tab: "personas" }, { replace: true });
     }
   }, [tab, eventQuery.data, setSearchParams]);
 
@@ -596,11 +609,32 @@ export function EventDetailPage() {
   });
   const referenteRows = referentesQuery.data?.rows ?? [];
 
+  const gruposListQuery = useQuery({
+    queryKey: ["referentes", id, "all"],
+    queryFn: async () =>
+      (await api.get<{ total: number; rows: EventReferenteListItemDto[] }>(`/events/${id}/referentes`)).data,
+    enabled: tab === "Grupos" && enableReferentes && !dataOffloaded
+  });
+  const gruposRows = gruposListQuery.data?.rows ?? [];
+  const filteredGruposRows = useMemo(() => {
+    const q = gruposFilter.trim().toLocaleLowerCase("es-AR");
+    if (!q) return gruposRows;
+    return gruposRows.filter(
+      (row) =>
+        row.name.toLocaleLowerCase("es-AR").includes(q) ||
+        row.email.toLocaleLowerCase("es-AR").includes(q) ||
+        (row.phone ?? "").includes(q)
+    );
+  }, [gruposRows, gruposFilter]);
+
   const referenteGroupQuery = useQuery({
     queryKey: ["referente", id, selectedReferenteId],
     queryFn: async () =>
       (await api.get<EventReferenteGroupDto>(`/events/${id}/referentes/${selectedReferenteId}`)).data,
-    enabled: tab === "Acreditar" && enableReferentes && Boolean(selectedReferenteId)
+    enabled:
+      enableReferentes &&
+      Boolean(selectedReferenteId) &&
+      (tab === "Acreditar" || tab === "Grupos")
   });
 
   useEffect(() => {
@@ -1419,7 +1453,7 @@ export function EventDetailPage() {
                       <strong>Email</strong> {referenteGroupQuery.data.email || "—"}
                     </p>
                     <p>
-                      <strong>Teléfono</strong> {referenteGroupQuery.data.phone || "—"}
+                      <strong>DNI</strong> {referenteGroupQuery.data.phone || "—"}
                     </p>
                     <p>
                       <strong>Estado</strong>{" "}
@@ -1939,6 +1973,170 @@ export function EventDetailPage() {
                 : [])
             ]}
           />
+        </div>
+      ) : null}
+
+      {tab === "Grupos" && enableReferentes && !dataOffloaded ? (
+        <div>
+          <div
+            className="card"
+            style={{
+              marginBottom: "1rem",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "1rem",
+              justifyContent: "space-between",
+              alignItems: "flex-start"
+            }}
+          >
+            <div>
+              <h3 className="display-sm" style={{ fontSize: "1.2rem", margin: "0 0 0.35rem" }}>
+                Grupos del evento
+              </h3>
+              <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                Titulares y personas a cargo. En Personas no aparecen los titulares porque se agrupan acá.
+                Total: <strong>{gruposListQuery.data?.total ?? "…"}</strong>
+                {gruposFilter.trim() ? ` · filtrados: ${filteredGruposRows.length}` : ""}.
+              </p>
+            </div>
+            <input
+              className="input input--boxed"
+              style={{ minWidth: "16rem" }}
+              placeholder="Filtrar por titular, mail o DNI"
+              value={gruposFilter}
+              onChange={(e) => setGruposFilter(e.target.value)}
+            />
+          </div>
+
+          {gruposListQuery.isLoading ? (
+            <p className="page-state">Cargando grupos…</p>
+          ) : gruposListQuery.isError ? (
+            <p className="message-error">No se pudieron cargar los grupos.</p>
+          ) : filteredGruposRows.length === 0 ? (
+            <p className="page-state">No hay grupos cargados todavía. Importá un Excel con Titular del grupo.</p>
+          ) : (
+            <DataTable
+              rows={filteredGruposRows}
+              columns={[
+                {
+                  key: "titular",
+                  header: "Titular",
+                  render: (row) => (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: "0.25rem 0.5rem", fontWeight: 700 }}
+                      onClick={() =>
+                        setSelectedReferenteId((prev) => (prev === row.id ? null : row.id))
+                      }
+                    >
+                      {row.name}
+                    </button>
+                  )
+                },
+                {
+                  key: "email",
+                  header: "Email",
+                  render: (row) => row.email || "—"
+                },
+                {
+                  key: "dni",
+                  header: "DNI",
+                  render: (row) => row.phone || "—"
+                },
+                {
+                  key: "aCargo",
+                  header: "A cargo",
+                  render: (row) => row.peopleCount
+                },
+                {
+                  key: "pendientes",
+                  header: "Pendientes",
+                  render: (row) => row.pendingCount
+                },
+                {
+                  key: "acreditados",
+                  header: "Acreditados",
+                  render: (row) => row.accreditedCount
+                },
+                {
+                  key: "estado",
+                  header: "Estado titular",
+                  render: (row) =>
+                    row.eventPersonStatus === "accredited"
+                      ? "Acreditado"
+                      : row.eventPersonStatus === "pending"
+                        ? "Pendiente"
+                        : "—"
+                }
+              ]}
+            />
+          )}
+
+          {selectedReferenteId && tab === "Grupos" ? (
+            <div className="card" style={{ marginTop: "1rem" }}>
+              {referenteGroupQuery.isLoading ? (
+                <p className="page-state">Cargando detalle…</p>
+              ) : referenteGroupQuery.isError || !referenteGroupQuery.data ? (
+                <p className="message-error">No se pudo cargar el detalle del grupo.</p>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "space-between",
+                      gap: "0.75rem",
+                      alignItems: "flex-start"
+                    }}
+                  >
+                    <div>
+                      <p className="label-md field-label" style={{ marginTop: 0 }}>
+                        Detalle del grupo
+                      </p>
+                      <h3 style={{ margin: "0 0 0.35rem" }}>{referenteGroupQuery.data.name}</h3>
+                      <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                        {referenteGroupQuery.data.email || "Sin mail"}
+                        {referenteGroupQuery.data.phone ? ` · DNI ${referenteGroupQuery.data.phone}` : ""}
+                        {" · "}
+                        Titular:{" "}
+                        {referenteGroupQuery.data.eventPerson?.status === "accredited"
+                          ? "Acreditado"
+                          : "Pendiente"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setSelectedReferenteId(null)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <p className="label-md field-label" style={{ marginTop: "1rem" }}>
+                    Personas a cargo ({referenteGroupQuery.data.people.length})
+                  </p>
+                  {referenteGroupQuery.data.people.length === 0 ? (
+                    <p style={{ margin: 0, color: "var(--on-surface-variant)" }}>Sin personas a cargo.</p>
+                  ) : (
+                    <ul className="referente-people-list">
+                      {referenteGroupQuery.data.people.map((person) => (
+                        <li key={person.id} className="referente-people-list__item">
+                          <span>
+                            {person.person.lastName}, {person.person.firstName}
+                            {person.person.dni ? ` · DNI ${person.person.dni}` : ""}
+                          </span>
+                          <span className="status-pill status-pill--draft">
+                            {person.status === "accredited" ? "Acreditado" : "Pendiente"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
