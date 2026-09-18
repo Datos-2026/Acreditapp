@@ -682,11 +682,16 @@ export function EventDetailPage() {
 
   const displayRows = useMemo(() => {
     if (liveRows.length > 0) return liveRows;
-    if (isExactDocumentSearch && exactEventPerson) {
+    // El titular de un grupo no se acredita como persona suelta: va por la tarjeta de grupo.
+    if (
+      isExactDocumentSearch &&
+      exactEventPerson &&
+      !(enableReferentes && (exactEventPerson as EventPerson & { isReferente?: boolean }).isReferente)
+    ) {
       return [exactEventPerson as unknown as LiveSearchRow];
     }
     return [];
-  }, [liveRows, exactEventPerson, isExactDocumentSearch]);
+  }, [liveRows, exactEventPerson, isExactDocumentSearch, enableReferentes]);
 
   /**
    * Al cambiar la búsqueda, la persona previamente seleccionada puede no estar más
@@ -1243,6 +1248,25 @@ export function EventDetailPage() {
                     return;
                   }
 
+                  if (enableReferentes && referenteRows.length === 1 && displayRows.length === 0) {
+                    e.preventDefault();
+                    setSelected(null);
+                    setSelectedReferenteId(referenteRows[0].id);
+                    setReferenteSuccess(null);
+                    setSearchedOnce(true);
+                    return;
+                  }
+
+                  // DNI/CUIL del titular: abrir el grupo aunque la búsqueda exacta lo traiga como persona.
+                  if (enableReferentes && referenteRows.length === 1 && isExactDocumentSearch) {
+                    e.preventDefault();
+                    setSelected(null);
+                    setSelectedReferenteId(referenteRows[0].id);
+                    setReferenteSuccess(null);
+                    setSearchedOnce(true);
+                    return;
+                  }
+
                   if (displayRows.length === 1) {
                     e.preventDefault();
                     const only = displayRows[0] as EventPerson;
@@ -1254,14 +1278,6 @@ export function EventDetailPage() {
                       setShowConfirm(true);
                     }
                     return;
-                  }
-
-                  if (enableReferentes && referenteRows.length === 1 && displayRows.length === 0) {
-                    e.preventDefault();
-                    setSelected(null);
-                    setSelectedReferenteId(referenteRows[0].id);
-                    setReferenteSuccess(null);
-                    setSearchedOnce(true);
                   }
                 }}
               />

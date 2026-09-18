@@ -1367,6 +1367,7 @@ router.get("/:id/referentes", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const q = String(req.query.q ?? "").trim();
+    const qDigits = q.replace(/\D/g, "");
     const rows = await prisma.eventReferente.findMany({
       where: {
         eventId: req.params.id,
@@ -1375,7 +1376,15 @@ router.get("/:id/referentes", async (req, res, next) => {
               OR: [
                 { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
                 { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
-                { emailNormalized: { contains: q.toLowerCase() } }
+                { emailNormalized: { contains: q.toLowerCase() } },
+                ...(qDigits.length >= 6
+                  ? [
+                      { phone: { contains: qDigits } },
+                      { emailNormalized: { contains: `dni:${qDigits}` } },
+                      { eventPerson: { person: { dni: { contains: qDigits } } } },
+                      { eventPerson: { person: { cuilNormalized: { contains: qDigits } } } }
+                    ]
+                  : [])
               ]
             }
           : {})
