@@ -889,6 +889,7 @@ export function EventDetailPage() {
     void queryClient.invalidateQueries({ queryKey: ["people", id, "list"] });
     void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
     void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+    void queryClient.invalidateQueries({ queryKey: ["referentes", id] });
     void queryClient.invalidateQueries({ queryKey: ["stats", id] });
     void queryClient.invalidateQueries({ queryKey: ["event", id] });
   };
