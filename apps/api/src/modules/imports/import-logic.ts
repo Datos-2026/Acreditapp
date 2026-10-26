@@ -1,4 +1,4 @@
-import { normalizeCuil, normalizeDni, syntheticCuilFromDni } from "@gcba/shared";
+import { normalizeCuil, normalizeDni, syntheticCuilFromDni, type AccreditationDisplayColumn } from "@gcba/shared";
 
 /** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
 export function normalizeImportSheetHeader(header: string): string {
@@ -311,10 +311,159 @@ export function buildVecinoExtraData(
   return buildImportExtraData(canonical, extraData, ["presente", "direccion"]);
 }
 
+export type { AccreditationDisplayColumn };
+
+const ACCREDITATION_COLUMN_FIELDS = new Set([
+  "email",
+  "telefono",
+  "empresa",
+  "cargo",
+  "notes",
+  "presente",
+  "direccion",
+  "comuna",
+  "mesa",
+  "dni",
+  "cuil",
+  "cuit",
+  "nombre",
+  "apellido",
+  "nombreCompleto",
+  "nombreApellido"
+]);
+
+/** Campos que la ficha de acreditación ya muestra siempre. */
+const DISPLAYED_CANONICAL_FIELDS: Record<"gcba" | "vecinos", Set<string>> = {
+  gcba: new Set(["nombre", "apellido", "nombreCompleto", "nombreApellido", "cuil", "cuit", "dni", "empresa", "cargo"]),
+  vecinos: new Set([
+    "nombre",
+    "apellido",
+    "nombreCompleto",
+    "nombreApellido",
+    "cuil",
+    "cuit",
+    "dni",
+    "direccion",
+    "telefono",
+    "presente",
+    "mesa"
+  ])
+};
+
+function headerAlreadyOnAccreditationCard(kind: "gcba" | "vecinos", header: string, field: string | null): boolean {
+  if (field && DISPLAYED_CANONICAL_FIELDS[kind].has(field)) return true;
+  const normalized = normalizeImportSheetHeader(header);
+  if (!normalized) return true;
+  if (
+    normalized === "nombre" ||
+    normalized === "nombres" ||
+    normalized === "apellido" ||
+    normalized === "apellidos" ||
+    normalized === "ayn" ||
+    normalized.includes("nombre y apellido") ||
+    normalized.includes("apellido y nombre") ||
+    normalized.startsWith("nombre/") ||
+    normalized.startsWith("apellido/")
+  ) {
+    return true;
+  }
+  if (normalized.includes("dni") || normalized.includes("documento") || normalized.includes("cuil") || normalized.includes("cuit")) {
+    return true;
+  }
+  if (normalized === "origen") return true;
+  if (kind === "vecinos") {
+    if (normalized === "direccion" || normalized === "domicilio") return true;
+    if (
+      normalized === "telefono" ||
+      normalized === "celular" ||
+      normalized === "tel" ||
+      normalized === "numero de telefono"
+    ) {
+      return true;
+    }
+    if (normalized === "comuna" || normalized.startsWith("comuna ")) return true;
+    if (normalized === "mesa" || normalized.startsWith("mesa ")) return true;
+    if (normalized === "presente" || normalized === "asistio") return true;
+  }
+  if (kind === "gcba") {
+    if (normalized.includes("ministerio")) return true;
+    if (normalized === "rol" || normalized.startsWith("rol ") || normalized === "cargo") return true;
+  }
+  return false;
+}
+
+function cellHasValue(value: unknown): boolean {
+  return value != null && String(value).trim() !== "";
+}
+
+/** Columnas de la planilla que todavía no se ven en la ficha y tienen algún dato. */
+export function listAccreditationColumnChoices(params: {
+  kind: "gcba" | "vecinos";
+  headers: string[];
+  mapping: Record<string, string>;
+  rows: Array<{ canonical: Record<string, unknown>; extraData?: Record<string, unknown> }>;
+}): AccreditationDisplayColumn[] {
+  const choices: AccreditationDisplayColumn[] = [];
+  const seen = new Set<string>();
+  for (const header of params.headers) {
+    if (isImportNoiseColumn(header)) continue;
+    const field = params.mapping[header] ?? null;
+    if (headerAlreadyOnAccreditationCard(params.kind, header, field)) continue;
+    const hasValue = params.rows.some((row) => {
+      if (field && cellHasValue(row.canonical[field])) return true;
+      return cellHasValue(row.extraData?.[header]);
+    });
+    if (!hasValue) continue;
+    const key = normalizeImportSheetHeader(header);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    choices.push({ header, field });
+  }
+  return choices;
+}
+
+/** null = payload inválido. [] = el usuario no quiere columnas extra. */
+export function parseAccreditationColumnsPayload(raw: unknown): AccreditationDisplayColumn[] | null {
+  let value = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      value = JSON.parse(trimmed) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(value)) return null;
+  if (value.length > 12) return null;
+  const out: AccreditationDisplayColumn[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const header = String((item as { header?: unknown }).header ?? "").trim();
+    if (!header || header.length > 160 || isImportNoiseColumn(header)) return null;
+    const fieldRaw = (item as { field?: unknown }).field;
+    const field = fieldRaw == null || String(fieldRaw).trim() === "" ? null : String(fieldRaw).trim();
+    if (field && !ACCREDITATION_COLUMN_FIELDS.has(field)) return null;
+    const key = normalizeImportSheetHeader(header);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ header, field });
+  }
+  return out;
+}
+
 export function extractReferenteRaw(extraData: Record<string, unknown>): unknown {
   for (const [header, value] of Object.entries(extraData)) {
     const normalized = normalizeImportSheetHeader(header);
-    if (normalized === "referente" || normalized.startsWith("referente")) {
+    if (
+      normalized === "referente" ||
+      normalized.startsWith("referente") ||
+      normalized === "titular del grupo" ||
+      normalized === "titular" ||
+      normalized.startsWith("titular del grupo") ||
+      normalized === "titular grupo"
+    ) {
       return value;
     }
   }

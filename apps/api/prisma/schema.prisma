@@ -89,6 +89,8 @@ model Event {
   closedAt         DateTime?
   /** Momento en que se volcó la nómina a Sheets y se vació la base operativa. */
   archivedToSheetsAt DateTime?
+  /** Columnas de la planilla que se muestran en la ficha al acreditar. */
+  accreditationColumns Json @default("[]")
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   eventUsers       EventUser[]

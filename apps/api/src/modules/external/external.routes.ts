@@ -32,7 +32,7 @@ const createExternalEventSchema = z
     enableNotes: z.boolean().optional().default(false),
     /** Volcar acreditados a MySQL ACREDITADOS (una tabla por evento). */
     enableGoogleSheets: z.boolean().optional().default(false),
-    /** Agrupar y acreditar por referente. */
+    /** Agrupar y acreditar por titular del grupo (personas a cargo). */
     enableReferentes: z.boolean().optional().default(false)
   })
   .superRefine((data, ctx) => {

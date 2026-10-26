@@ -25,7 +25,7 @@ import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
-import type { DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
+import type { AccreditationDisplayColumn, DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
 import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
@@ -57,8 +57,52 @@ type EventPerson = {
     comuna?: string | null;
     phone?: string | null;
     email?: string | null;
+    notes?: string | null;
   };
 };
+
+function readAccreditationColumns(raw: unknown): AccreditationDisplayColumn[] {
+  if (!Array.isArray(raw)) return [];
+  const columns: AccreditationDisplayColumn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const header = String((item as { header?: unknown }).header ?? "").trim();
+    if (!header) continue;
+    const fieldRaw = (item as { field?: unknown }).field;
+    const field = typeof fieldRaw === "string" && fieldRaw.trim() ? fieldRaw.trim() : null;
+    columns.push({ header, field });
+  }
+  return columns;
+}
+
+function accreditationColumnValue(
+  person: EventPerson["person"],
+  extraData: Record<string, unknown> | null | undefined,
+  column: AccreditationDisplayColumn
+): unknown {
+  const extra = extraData ?? {};
+  const fromExtra = extra[column.header];
+  switch (column.field) {
+    case "email":
+      return person.email ?? fromExtra;
+    case "telefono":
+      return person.phone ?? fromExtra;
+    case "empresa":
+      return person.company ?? fromExtra;
+    case "cargo":
+      return person.position ?? fromExtra;
+    case "notes":
+      return person.notes ?? fromExtra;
+    case "direccion":
+      return person.address ?? extra.direccion ?? fromExtra;
+    case "presente":
+      return extra.presente ?? fromExtra;
+    case "comuna":
+      return person.comuna ?? fromExtra;
+    default:
+      return fromExtra;
+  }
+}
 
 function displayOrDash(value: unknown): string {
   if (value == null || String(value).trim() === "") return "—";
@@ -203,6 +247,7 @@ function formatTimelineTick(raw: string) {
 const tabs = [
   "Acreditar",
   "Personas",
+  "Grupos",
   "Acreditados",
   "Fuera de base",
   "Descargas",
@@ -216,6 +261,7 @@ const tabs = [
 const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
   Acreditar: "terminal",
   Personas: "personas",
+  Grupos: "grupos",
   Acreditados: "acreditados",
   "Fuera de base": "fuera-de-base",
   Descargas: "descargas",
@@ -229,6 +275,7 @@ const TAB_TO_SLUG: Record<(typeof tabs)[number], string> = {
 const SLUG_TO_TAB: Record<string, (typeof tabs)[number]> = {
   terminal: "Acreditar",
   personas: "Personas",
+  grupos: "Grupos",
   acreditados: "Acreditados",
   "fuera-de-base": "Fuera de base",
   descargas: "Descargas",
@@ -275,7 +322,7 @@ function ReferenteAccreditSuccessCard({
       <h4 className="fuera-base-success-card__title">Grupo acreditado</h4>
       <p className="fuera-base-success-card__name">{name}</p>
       <p className="fuera-base-success-card__hint">
-        Se acreditaron {accreditedCount} persona{accreditedCount === 1 ? "" : "s"} (referente y a cargo).
+        Se acreditaron {accreditedCount} persona{accreditedCount === 1 ? "" : "s"} (titular y a cargo).
       </p>
     </div>
   );
@@ -305,6 +352,7 @@ export function EventDetailPage() {
   const [referenteCheckedIds, setReferenteCheckedIds] = useState<Set<string>>(new Set());
   const [showReferenteConfirm, setShowReferenteConfirm] = useState(false);
   const [referenteSuccess, setReferenteSuccess] = useState<{ name: string; accreditedCount: number } | null>(null);
+  const [gruposFilter, setGruposFilter] = useState("");
   const [lastSearchedCuil, setLastSearchedCuil] = useState("");
   const [uiNotice, setUiNotice] = useState<string | null>(null);
   const [uiNoticeIsError, setUiNoticeIsError] = useState(false);
@@ -372,6 +420,9 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
+  const accreditationColumns = readAccreditationColumns(
+    (eventQuery.data as { accreditationColumns?: unknown } | undefined)?.accreditationColumns
+  );
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
   const canDownloadAcreditadosBase = Boolean(eventQuery.data?.canDownloadAcreditadosBase);
@@ -421,16 +472,25 @@ export function EventDetailPage() {
     if (!enableNotes) {
       list = list.filter((t) => t !== "Notas");
     }
+    if (!enableReferentes) {
+      list = list.filter((t) => t !== "Grupos");
+    }
     if (dataOffloaded) {
       const archivedTabs = new Set<(typeof tabs)[number]>(["Dashboard", "Notas", "Configuración"]);
       list = list.filter((t) => archivedTabs.has(t));
     }
     return list;
-  }, [user?.role, isVecinosEvent, enableNotes, dataOffloaded]);
+  }, [user?.role, isVecinosEvent, enableNotes, enableReferentes, dataOffloaded]);
 
   useEffect(() => {
     if (tab === "Notas" && eventQuery.data && !eventQuery.data.enableNotes) {
       setSearchParams({ tab: "terminal" }, { replace: true });
+    }
+  }, [tab, eventQuery.data, setSearchParams]);
+
+  useEffect(() => {
+    if (tab === "Grupos" && eventQuery.data && !eventQuery.data.enableReferentes) {
+      setSearchParams({ tab: "personas" }, { replace: true });
     }
   }, [tab, eventQuery.data, setSearchParams]);
 
@@ -596,11 +656,32 @@ export function EventDetailPage() {
   });
   const referenteRows = referentesQuery.data?.rows ?? [];
 
+  const gruposListQuery = useQuery({
+    queryKey: ["referentes", id, "all"],
+    queryFn: async () =>
+      (await api.get<{ total: number; rows: EventReferenteListItemDto[] }>(`/events/${id}/referentes`)).data,
+    enabled: tab === "Grupos" && enableReferentes && !dataOffloaded
+  });
+  const gruposRows = gruposListQuery.data?.rows ?? [];
+  const filteredGruposRows = useMemo(() => {
+    const q = gruposFilter.trim().toLocaleLowerCase("es-AR");
+    if (!q) return gruposRows;
+    return gruposRows.filter(
+      (row) =>
+        row.name.toLocaleLowerCase("es-AR").includes(q) ||
+        row.email.toLocaleLowerCase("es-AR").includes(q) ||
+        (row.phone ?? "").includes(q)
+    );
+  }, [gruposRows, gruposFilter]);
+
   const referenteGroupQuery = useQuery({
     queryKey: ["referente", id, selectedReferenteId],
     queryFn: async () =>
       (await api.get<EventReferenteGroupDto>(`/events/${id}/referentes/${selectedReferenteId}`)).data,
-    enabled: tab === "Acreditar" && enableReferentes && Boolean(selectedReferenteId)
+    enabled:
+      enableReferentes &&
+      Boolean(selectedReferenteId) &&
+      (tab === "Acreditar" || tab === "Grupos")
   });
 
   useEffect(() => {
@@ -648,11 +729,16 @@ export function EventDetailPage() {
 
   const displayRows = useMemo(() => {
     if (liveRows.length > 0) return liveRows;
-    if (isExactDocumentSearch && exactEventPerson) {
+    // El titular de un grupo no se acredita como persona suelta: va por la tarjeta de grupo.
+    if (
+      isExactDocumentSearch &&
+      exactEventPerson &&
+      !(enableReferentes && (exactEventPerson as EventPerson & { isReferente?: boolean }).isReferente)
+    ) {
       return [exactEventPerson as unknown as LiveSearchRow];
     }
     return [];
-  }, [liveRows, exactEventPerson, isExactDocumentSearch]);
+  }, [liveRows, exactEventPerson, isExactDocumentSearch, enableReferentes]);
 
   /**
    * Al cambiar la búsqueda, la persona previamente seleccionada puede no estar más
@@ -742,7 +828,7 @@ export function EventDetailPage() {
     onSuccess: (data) => {
       const group = referenteGroupQuery.data;
       setReferenteSuccess({
-        name: group?.name ?? "Referente",
+        name: group?.name ?? "Titular",
         accreditedCount: data.accredited
       });
       setShowReferenteConfirm(false);
@@ -850,6 +936,7 @@ export function EventDetailPage() {
     void queryClient.invalidateQueries({ queryKey: ["people", id, "list"] });
     void queryClient.invalidateQueries({ queryKey: ["people", id, "live"] });
     void queryClient.invalidateQueries({ queryKey: ["people", id, "accredited"] });
+    void queryClient.invalidateQueries({ queryKey: ["referentes", id] });
     void queryClient.invalidateQueries({ queryKey: ["stats", id] });
     void queryClient.invalidateQueries({ queryKey: ["event", id] });
   };
@@ -1174,8 +1261,8 @@ export function EventDetailPage() {
                 placeholder={
                   enableReferentes
                     ? isVecinosEvent
-                      ? "DNI / Apellido / referente / mail"
-                      : "CUIL / DNI / Apellido / referente / mail"
+                      ? "DNI / Apellido / titular / mail"
+                      : "CUIL / DNI / Apellido / titular / mail"
                     : isVecinosEvent
                       ? "DNI / Apellido"
                       : "CUIL / DNI / Apellido"
@@ -1209,6 +1296,25 @@ export function EventDetailPage() {
                     return;
                   }
 
+                  if (enableReferentes && referenteRows.length === 1 && displayRows.length === 0) {
+                    e.preventDefault();
+                    setSelected(null);
+                    setSelectedReferenteId(referenteRows[0].id);
+                    setReferenteSuccess(null);
+                    setSearchedOnce(true);
+                    return;
+                  }
+
+                  // DNI/CUIL del titular: abrir el grupo aunque la búsqueda exacta lo traiga como persona.
+                  if (enableReferentes && referenteRows.length === 1 && isExactDocumentSearch) {
+                    e.preventDefault();
+                    setSelected(null);
+                    setSelectedReferenteId(referenteRows[0].id);
+                    setReferenteSuccess(null);
+                    setSearchedOnce(true);
+                    return;
+                  }
+
                   if (displayRows.length === 1) {
                     e.preventDefault();
                     const only = displayRows[0] as EventPerson;
@@ -1220,14 +1326,6 @@ export function EventDetailPage() {
                       setShowConfirm(true);
                     }
                     return;
-                  }
-
-                  if (enableReferentes && referenteRows.length === 1 && displayRows.length === 0) {
-                    e.preventDefault();
-                    setSelected(null);
-                    setSelectedReferenteId(referenteRows[0].id);
-                    setReferenteSuccess(null);
-                    setSearchedOnce(true);
                   }
                 }}
               />
@@ -1252,7 +1350,7 @@ export function EventDetailPage() {
             </div>
             <p className="search-cuil-form__hint search-help">
               {enableReferentes
-                ? "Buscá un referente (nombre o mail) o una persona suelta. Enter acredita si hay un solo resultado."
+                ? "Buscá un grupo por titular (nombre o mail) o una persona suelta. Enter acredita si hay un solo resultado."
                 : "Buscá una persona de la base y tocá Enter para acreditarla (o usá el botón rojo)."}
             </p>
           </section>
@@ -1275,7 +1373,7 @@ export function EventDetailPage() {
             {debouncedSearch.length < 2 ? (
               <p style={{ color: "var(--on-surface-variant)", fontWeight: 600, margin: 0 }}>
                 {enableReferentes
-                  ? "Escribí al menos 2 caracteres para buscar un referente o una persona."
+                  ? "Escribí al menos 2 caracteres para buscar un grupo o una persona."
                   : "Escribí al menos 2 caracteres para buscar personas en la base."}
               </p>
             ) : livePeopleQuery.isLoading || exactCuilQuery.isLoading || (enableReferentes && referentesQuery.isLoading) ? (
@@ -1298,7 +1396,7 @@ export function EventDetailPage() {
               <>
                 {enableReferentes && referenteRows.length > 0 ? (
                   <>
-                    <p className="label-md field-label">Referentes ({referenteRows.length})</p>
+                    <p className="label-md field-label">Grupos ({referenteRows.length})</p>
                     <div className="live-results-grid live-results-grid--dark" style={{ marginBottom: "1rem" }}>
                       {referenteRows.map((row) => (
                         <button
@@ -1317,7 +1415,7 @@ export function EventDetailPage() {
                           <p className="live-result-card__meta">
                             {row.peopleCount} a cargo · {row.pendingCount} pendientes
                           </p>
-                          <span className="status-pill status-pill--draft">Referente</span>
+                          <span className="status-pill status-pill--draft">Titular</span>
                         </button>
                       ))}
                     </div>
@@ -1407,10 +1505,10 @@ export function EventDetailPage() {
               referenteGroupQuery.isLoading ? (
                 <p className="page-state">Cargando grupo…</p>
               ) : referenteGroupQuery.isError || !referenteGroupQuery.data ? (
-                <p className="message-error">No se pudo cargar el grupo del referente.</p>
+                <p className="message-error">No se pudo cargar el grupo.</p>
               ) : (
                 <div className="accred-detail referente-group-card">
-                  <p className="label-md field-label">Referente</p>
+                  <p className="label-md field-label">Titular del grupo</p>
                   <h3 className="accred-detail__name" style={{ marginTop: 0 }}>
                     {referenteGroupQuery.data.name}
                   </h3>
@@ -1419,7 +1517,7 @@ export function EventDetailPage() {
                       <strong>Email</strong> {referenteGroupQuery.data.email || "—"}
                     </p>
                     <p>
-                      <strong>Teléfono</strong> {referenteGroupQuery.data.phone || "—"}
+                      <strong>DNI</strong> {referenteGroupQuery.data.phone || "—"}
                     </p>
                     <p>
                       <strong>Estado</strong>{" "}
@@ -1432,7 +1530,7 @@ export function EventDetailPage() {
                     Personas a cargo ({referenteGroupQuery.data.people.length})
                   </p>
                   <p style={{ margin: "0 0 0.75rem", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-                    Todas las pendientes vienen tildadas. Destildá a quien no esté con el referente.
+                    Todas las pendientes vienen tildadas. Destildá a quien no esté con el titular.
                   </p>
                   <ul className="referente-people-list">
                     {referenteGroupQuery.data.people.map((person) => {
@@ -1618,6 +1716,12 @@ export function EventDetailPage() {
                       </p>
                     </>
                   )}
+                  {accreditationColumns.map((column) => (
+                    <p key={column.header}>
+                      <strong>{column.header}</strong>{" "}
+                      {displayOrDash(accreditationColumnValue(selected.person, selected.extraData, column))}
+                    </p>
+                  ))}
                 </div>
               </div>
             ) : fueraDeBaseSuccess && !showFueraDeBaseModal ? (
@@ -1671,11 +1775,11 @@ export function EventDetailPage() {
           </ConfirmDialog>
           <ConfirmDialog
             open={showReferenteConfirm}
-            title="Acreditar grupo del referente"
+            title="Acreditar grupo"
             message={
               referenteGroupQuery.data
                 ? `Se acredita a ${referenteGroupQuery.data.name} y a las personas tildadas a cargo.`
-                : "Se acredita al referente y a las personas seleccionadas."
+                : "Se acredita al titular y a las personas seleccionadas."
             }
             confirmLabel={
               accreditBulkMutation.isPending
@@ -1939,6 +2043,170 @@ export function EventDetailPage() {
                 : [])
             ]}
           />
+        </div>
+      ) : null}
+
+      {tab === "Grupos" && enableReferentes && !dataOffloaded ? (
+        <div>
+          <div
+            className="card"
+            style={{
+              marginBottom: "1rem",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "1rem",
+              justifyContent: "space-between",
+              alignItems: "flex-start"
+            }}
+          >
+            <div>
+              <h3 className="display-sm" style={{ fontSize: "1.2rem", margin: "0 0 0.35rem" }}>
+                Grupos del evento
+              </h3>
+              <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                Titulares y personas a cargo. En Personas no aparecen los titulares porque se agrupan acá.
+                Total: <strong>{gruposListQuery.data?.total ?? "…"}</strong>
+                {gruposFilter.trim() ? ` · filtrados: ${filteredGruposRows.length}` : ""}.
+              </p>
+            </div>
+            <input
+              className="input input--boxed"
+              style={{ minWidth: "16rem" }}
+              placeholder="Filtrar por titular, mail o DNI"
+              value={gruposFilter}
+              onChange={(e) => setGruposFilter(e.target.value)}
+            />
+          </div>
+
+          {gruposListQuery.isLoading ? (
+            <p className="page-state">Cargando grupos…</p>
+          ) : gruposListQuery.isError ? (
+            <p className="message-error">No se pudieron cargar los grupos.</p>
+          ) : filteredGruposRows.length === 0 ? (
+            <p className="page-state">No hay grupos cargados todavía. Importá un Excel con Titular del grupo.</p>
+          ) : (
+            <DataTable
+              rows={filteredGruposRows}
+              columns={[
+                {
+                  key: "titular",
+                  header: "Titular",
+                  render: (row) => (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: "0.25rem 0.5rem", fontWeight: 700 }}
+                      onClick={() =>
+                        setSelectedReferenteId((prev) => (prev === row.id ? null : row.id))
+                      }
+                    >
+                      {row.name}
+                    </button>
+                  )
+                },
+                {
+                  key: "email",
+                  header: "Email",
+                  render: (row) => row.email || "—"
+                },
+                {
+                  key: "dni",
+                  header: "DNI",
+                  render: (row) => row.phone || "—"
+                },
+                {
+                  key: "aCargo",
+                  header: "A cargo",
+                  render: (row) => row.peopleCount
+                },
+                {
+                  key: "pendientes",
+                  header: "Pendientes",
+                  render: (row) => row.pendingCount
+                },
+                {
+                  key: "acreditados",
+                  header: "Acreditados",
+                  render: (row) => row.accreditedCount
+                },
+                {
+                  key: "estado",
+                  header: "Estado titular",
+                  render: (row) =>
+                    row.eventPersonStatus === "accredited"
+                      ? "Acreditado"
+                      : row.eventPersonStatus === "pending"
+                        ? "Pendiente"
+                        : "—"
+                }
+              ]}
+            />
+          )}
+
+          {selectedReferenteId && tab === "Grupos" ? (
+            <div className="card" style={{ marginTop: "1rem" }}>
+              {referenteGroupQuery.isLoading ? (
+                <p className="page-state">Cargando detalle…</p>
+              ) : referenteGroupQuery.isError || !referenteGroupQuery.data ? (
+                <p className="message-error">No se pudo cargar el detalle del grupo.</p>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "space-between",
+                      gap: "0.75rem",
+                      alignItems: "flex-start"
+                    }}
+                  >
+                    <div>
+                      <p className="label-md field-label" style={{ marginTop: 0 }}>
+                        Detalle del grupo
+                      </p>
+                      <h3 style={{ margin: "0 0 0.35rem" }}>{referenteGroupQuery.data.name}</h3>
+                      <p style={{ margin: 0, color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                        {referenteGroupQuery.data.email || "Sin mail"}
+                        {referenteGroupQuery.data.phone ? ` · DNI ${referenteGroupQuery.data.phone}` : ""}
+                        {" · "}
+                        Titular:{" "}
+                        {referenteGroupQuery.data.eventPerson?.status === "accredited"
+                          ? "Acreditado"
+                          : "Pendiente"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setSelectedReferenteId(null)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <p className="label-md field-label" style={{ marginTop: "1rem" }}>
+                    Personas a cargo ({referenteGroupQuery.data.people.length})
+                  </p>
+                  {referenteGroupQuery.data.people.length === 0 ? (
+                    <p style={{ margin: 0, color: "var(--on-surface-variant)" }}>Sin personas a cargo.</p>
+                  ) : (
+                    <ul className="referente-people-list">
+                      {referenteGroupQuery.data.people.map((person) => (
+                        <li key={person.id} className="referente-people-list__item">
+                          <span>
+                            {person.person.lastName}, {person.person.firstName}
+                            {person.person.dni ? ` · DNI ${person.person.dni}` : ""}
+                          </span>
+                          <span className="status-pill status-pill--draft">
+                            {person.status === "accredited" ? "Acreditado" : "Pendiente"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -2387,7 +2655,12 @@ export function EventDetailPage() {
 
       {tab === "Importar XLSX" && !dataOffloaded ? (
         <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
-          <ImportWizard eventId={id} eventKind={eventKind} enableReferentes={Boolean(eventQuery.data?.enableReferentes)} />
+          <ImportWizard
+            eventId={id}
+            eventKind={eventKind}
+            enableReferentes={Boolean(eventQuery.data?.enableReferentes)}
+            savedColumns={accreditationColumns}
+          />
         </RoleGuard>
       ) : null}
 
@@ -2640,7 +2913,7 @@ export function EventDetailPage() {
       <ConfirmTypeDialog
         open={showArchiveToSheets}
         title="Exportar a ACREDITADOS y borrar del sistema"
-        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a una tabla en phpMyAdmin (base ACREDITADOS). Después se borran personas, importaciones y referentes de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
+        message={`Se va a volcar TODA la nómina de "${eventQuery.data?.name ?? ""}" a una tabla en phpMyAdmin (base ACREDITADOS). Después se borran personas, importaciones y grupos de la app. El evento queda como archivo de consulta. No se puede deshacer.`}
         requiredText={eventQuery.data?.name ?? ""}
         requiredTextLabel={eventQuery.data?.name ?? ""}
         onCancel={() => setShowArchiveToSheets(false)}

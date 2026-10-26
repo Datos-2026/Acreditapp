@@ -16,12 +16,13 @@ export function LoginPage() {
   const location = useLocation();
   const fromPath = (location.state as { from?: { pathname: string } } | null)?.from?.pathname;
   const [error, setError] = useState<string | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const { register, handleSubmit, formState } = useForm<FormValues>({
     resolver: zodResolver(loginSchema)
   });
 
   useEffect(() => {
-    void refreshMe();
+    void refreshMe().finally(() => setCheckingSession(false));
   }, [refreshMe]);
 
   if (user) {
@@ -29,6 +30,10 @@ export function LoginPage() {
       return <Navigate to={fromPath} replace />;
     }
     return <Navigate to={user.role === "SUPERADMIN" ? "/admin" : "/eventos"} replace />;
+  }
+
+  if (checkingSession) {
+    return <div className="page-state">Entrando…</div>;
   }
 
   return (

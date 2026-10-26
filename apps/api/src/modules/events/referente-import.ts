@@ -1,4 +1,9 @@
-import { parseReferenteCell, splitReferenteName, syntheticCuilFromEmail } from "@gcba/shared";
+import {
+  parseReferenteCell,
+  splitReferenteName,
+  syntheticCuilFromDni,
+  syntheticCuilFromEmail
+} from "@gcba/shared";
 import { Prisma } from "../../prisma-exports";
 import { prisma } from "../../lib/prisma";
 import { extractReferenteRaw } from "../imports/import-logic";
@@ -12,25 +17,25 @@ export async function upsertReferenteForImport(params: {
   if (!parsed) return null;
 
   const { firstName, lastName } = splitReferenteName(parsed.name);
-  const cuil = syntheticCuilFromEmail(parsed.emailNormalized);
+  const dni = parsed.dni ?? null;
+  const cuil = dni ? syntheticCuilFromDni(dni) : syntheticCuilFromEmail(parsed.emailNormalized);
   const email = parsed.email ?? null;
-  const phone = parsed.phone ?? null;
 
   const person = await prisma.person.upsert({
     where: { cuilNormalized: cuil },
     create: {
       cuilNormalized: cuil,
-      cuilRaw: parsed.emailNormalized,
+      cuilRaw: dni ?? parsed.emailNormalized,
+      dni,
       firstName,
       lastName,
-      email,
-      phone
+      email
     },
     update: {
       firstName,
       lastName,
       ...(email ? { email } : {}),
-      ...(phone ? { phone } : {})
+      ...(dni ? { dni } : {})
     }
   });
 
@@ -61,13 +66,13 @@ export async function upsertReferenteForImport(params: {
       name: parsed.name,
       email: parsed.email ?? "",
       emailNormalized: parsed.emailNormalized,
-      phone,
+      phone: dni,
       eventPersonId: eventPerson.id
     },
     update: {
       name: parsed.name,
       email: parsed.email ?? "",
-      phone,
+      phone: dni,
       eventPersonId: eventPerson.id
     }
   });

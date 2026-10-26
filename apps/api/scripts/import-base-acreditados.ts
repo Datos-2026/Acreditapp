@@ -7,6 +7,7 @@ import {
   ensureBaseAcreditadosSchema
 } from "../src/modules/base-acreditados/mysql";
 import {
+  backfillPersonaEstadoYEventosFromLegacy,
   getBaseAcreditadosStats,
   importHistoricalWorkbook,
   loadDotacionIndex,
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
 
   if (rebuild) await dropBaseAcreditadosDatabase();
   await ensureBaseAcreditadosSchema();
+  await backfillPersonaEstadoYEventosFromLegacy();
   const dotacion = await loadDotacionIndex();
   const historical = await importHistoricalWorkbook(buffer, filename, dotacion);
   const mysqlEvents = await importExistingAcreditadosTables(dotacion);

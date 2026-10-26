@@ -1367,18 +1367,27 @@ router.get("/:id/referentes", async (req, res, next) => {
   try {
     await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
     const q = String(req.query.q ?? "").trim();
-    if (q.length < 2) {
-      res.json({ total: 0, rows: [] });
-      return;
-    }
+    const qDigits = q.replace(/\D/g, "");
     const rows = await prisma.eventReferente.findMany({
       where: {
         eventId: req.params.id,
-        OR: [
-          { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { emailNormalized: { contains: q.toLowerCase() } }
-        ]
+        ...(q.length >= 2
+          ? {
+              OR: [
+                { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
+                { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
+                { emailNormalized: { contains: q.toLowerCase() } },
+                ...(qDigits.length >= 6
+                  ? [
+                      { phone: { contains: qDigits } },
+                      { emailNormalized: { contains: `dni:${qDigits}` } },
+                      { eventPerson: { person: { dni: { contains: qDigits } } } },
+                      { eventPerson: { person: { cuilNormalized: { contains: qDigits } } } }
+                    ]
+                  : [])
+              ]
+            }
+          : {})
       },
       include: {
         eventPerson: { select: { id: true, status: true } },
@@ -1386,7 +1395,7 @@ router.get("/:id/referentes", async (req, res, next) => {
         people: { select: { status: true } }
       },
       orderBy: { name: "asc" },
-      take: 50
+      take: q.length >= 2 ? 50 : 2000
     });
     res.json({
       total: rows.length,
@@ -1423,7 +1432,7 @@ router.get("/:id/referentes/:referenteId", async (req, res, next) => {
         }
       }
     });
-    if (!referente) throw new AppError("Referente no encontrado", 404);
+    if (!referente) throw new AppError("Grupo no encontrado", 404);
     res.json({
       id: referente.id,
       name: referente.name,
@@ -1563,15 +1572,56 @@ router.delete(
         return;
       }
 
-      const deleted = await prisma.eventPerson.deleteMany({ where });
+      const eventId = req.params.id;
+      const { deleted, deletedReferentes } = await prisma.$transaction(async (tx) => {
+        // EventReferente no se borra en cascada al vaciar personas (onDelete: SetNull),
+        // así que hay que limpiarlo a mano; si no, Grupos queda con huérfanos.
+        let referenteIds: string[];
+        if (scope === "all") {
+          referenteIds = (
+            await tx.eventReferente.findMany({ where: { eventId }, select: { id: true } })
+          ).map((r) => r.id);
+        } else {
+          const peopleToDelete = await tx.eventPerson.findMany({
+            where,
+            select: { id: true }
+          });
+          const personIds = peopleToDelete.map((p) => p.id);
+          referenteIds =
+            personIds.length === 0
+              ? []
+              : (
+                  await tx.eventReferente.findMany({
+                    where: { eventId, eventPersonId: { in: personIds } },
+                    select: { id: true }
+                  })
+                ).map((r) => r.id);
+        }
+
+        if (referenteIds.length > 0) {
+          await tx.eventPerson.updateMany({
+            where: { eventId, referenteId: { in: referenteIds } },
+            data: { referenteId: null }
+          });
+          await tx.eventReferente.updateMany({
+            where: { id: { in: referenteIds } },
+            data: { eventPersonId: null }
+          });
+          await tx.eventReferente.deleteMany({ where: { id: { in: referenteIds } } });
+        }
+
+        const deletedPeople = await tx.eventPerson.deleteMany({ where });
+        return { deleted: deletedPeople.count, deletedReferentes: referenteIds.length };
+      });
+
       await createAuditLog({
         req,
         action: "eventPerson.bulkDelete",
         entityType: "event",
-        entityId: req.params.id,
-        metadata: { scope, deleted: deleted.count }
+        entityId: eventId,
+        metadata: { scope, deleted, deletedReferentes }
       });
-      res.json({ deleted: deleted.count, scope });
+      res.json({ deleted, deletedReferentes, scope });
     } catch (error) {
       next(error);
     }
@@ -1586,14 +1636,31 @@ router.delete(
       await ensureAccess(req.params.id, req.auth!.id, req.auth!.role);
       const eventPerson = await prisma.eventPerson.findUnique({
         where: { id: req.params.eventPersonId },
-        include: { person: { select: { firstName: true, lastName: true, cuilNormalized: true } } }
+        include: {
+          person: { select: { firstName: true, lastName: true, cuilNormalized: true } },
+          asReferente: { select: { id: true } }
+        }
       });
       if (!eventPerson || eventPerson.eventId !== req.params.id) {
         res.status(404).json({ message: "Persona no encontrada en este evento" });
         return;
       }
 
-      await prisma.eventPerson.delete({ where: { id: eventPerson.id } });
+      await prisma.$transaction(async (tx) => {
+        if (eventPerson.asReferente?.id) {
+          const referenteId = eventPerson.asReferente.id;
+          await tx.eventPerson.updateMany({
+            where: { referenteId },
+            data: { referenteId: null }
+          });
+          await tx.eventReferente.update({
+            where: { id: referenteId },
+            data: { eventPersonId: null }
+          });
+          await tx.eventReferente.delete({ where: { id: referenteId } });
+        }
+        await tx.eventPerson.delete({ where: { id: eventPerson.id } });
+      });
       await createAuditLog({
         req,
         action: "eventPerson.delete",
