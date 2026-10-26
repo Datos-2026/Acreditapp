@@ -88,6 +88,45 @@ describe("normalizeImportCanonical con header 'Nombre y Apellido'", () => {
   });
 });
 
+describe("listAccreditationColumnChoices", () => {
+  it("ofrece columnas que no están en la ficha y descarta las que ya se ven", async () => {
+    const { listAccreditationColumnChoices } = await import("./import-logic");
+    const choices = listAccreditationColumnChoices({
+      kind: "vecinos",
+      headers: ["Nombre", "Apellido", "DNI", "Dirección", "Teléfono", "Escuela", "Correo", "__EMPTY"],
+      mapping: {
+        Nombre: "nombre",
+        Apellido: "apellido",
+        DNI: "dni",
+        Dirección: "direccion",
+        Teléfono: "telefono",
+        Correo: "email"
+      },
+      rows: [
+        {
+          canonical: { nombre: "Ana", apellido: "Rojas", dni: "30111222", direccion: "Calle 1", telefono: "11", email: "ana@mail.com" },
+          extraData: { Escuela: "N° 4" }
+        }
+      ]
+    });
+    expect(choices).toEqual([
+      { header: "Escuela", field: null },
+      { header: "Correo", field: "email" }
+    ]);
+  });
+});
+
+describe("parseAccreditationColumnsPayload", () => {
+  it("acepta el JSON del formulario y rechaza campos desconocidos", async () => {
+    const { parseAccreditationColumnsPayload } = await import("./import-logic");
+    expect(parseAccreditationColumnsPayload('[{"header":"Escuela","field":null}]')).toEqual([
+      { header: "Escuela", field: null }
+    ]);
+    expect(parseAccreditationColumnsPayload('[{"header":"Escuela","field":"secreto"}]')).toBeNull();
+    expect(parseAccreditationColumnsPayload("")).toEqual([]);
+  });
+});
+
 describe("isImportNoiseColumn", () => {
   it("detecta columnas vacías generadas por Excel", async () => {
     const { isImportNoiseColumn } = await import("./import-logic");

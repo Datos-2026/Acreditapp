@@ -141,6 +141,13 @@ export type PersonSummaryDto = {
   comuna?: string | null;
 };
 
+/** Columna de la planilla elegida para verse en la ficha de acreditación. */
+export type AccreditationDisplayColumn = {
+  header: string;
+  /** Campo canónico (email, notes, …) si la columna se mapeó. null = valor en extraData[header]. */
+  field: string | null;
+};
+
 export type EventPersonDto = {
   id: string;
   status: "pending" | "accredited";

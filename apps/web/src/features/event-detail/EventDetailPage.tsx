@@ -25,7 +25,7 @@ import { DataTable } from "../../components/DataTable";
 import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
-import type { DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
+import type { AccreditationDisplayColumn, DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
 import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
@@ -57,8 +57,52 @@ type EventPerson = {
     comuna?: string | null;
     phone?: string | null;
     email?: string | null;
+    notes?: string | null;
   };
 };
+
+function readAccreditationColumns(raw: unknown): AccreditationDisplayColumn[] {
+  if (!Array.isArray(raw)) return [];
+  const columns: AccreditationDisplayColumn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const header = String((item as { header?: unknown }).header ?? "").trim();
+    if (!header) continue;
+    const fieldRaw = (item as { field?: unknown }).field;
+    const field = typeof fieldRaw === "string" && fieldRaw.trim() ? fieldRaw.trim() : null;
+    columns.push({ header, field });
+  }
+  return columns;
+}
+
+function accreditationColumnValue(
+  person: EventPerson["person"],
+  extraData: Record<string, unknown> | null | undefined,
+  column: AccreditationDisplayColumn
+): unknown {
+  const extra = extraData ?? {};
+  const fromExtra = extra[column.header];
+  switch (column.field) {
+    case "email":
+      return person.email ?? fromExtra;
+    case "telefono":
+      return person.phone ?? fromExtra;
+    case "empresa":
+      return person.company ?? fromExtra;
+    case "cargo":
+      return person.position ?? fromExtra;
+    case "notes":
+      return person.notes ?? fromExtra;
+    case "direccion":
+      return person.address ?? extra.direccion ?? fromExtra;
+    case "presente":
+      return extra.presente ?? fromExtra;
+    case "comuna":
+      return person.comuna ?? fromExtra;
+    default:
+      return fromExtra;
+  }
+}
 
 function displayOrDash(value: unknown): string {
   if (value == null || String(value).trim() === "") return "—";
@@ -376,6 +420,9 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
+  const accreditationColumns = readAccreditationColumns(
+    (eventQuery.data as { accreditationColumns?: unknown } | undefined)?.accreditationColumns
+  );
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
   const canDownloadAcreditadosBase = Boolean(eventQuery.data?.canDownloadAcreditadosBase);
@@ -1669,6 +1716,12 @@ export function EventDetailPage() {
                       </p>
                     </>
                   )}
+                  {accreditationColumns.map((column) => (
+                    <p key={column.header}>
+                      <strong>{column.header}</strong>{" "}
+                      {displayOrDash(accreditationColumnValue(selected.person, selected.extraData, column))}
+                    </p>
+                  ))}
                 </div>
               </div>
             ) : fueraDeBaseSuccess && !showFueraDeBaseModal ? (
@@ -2602,7 +2655,12 @@ export function EventDetailPage() {
 
       {tab === "Importar XLSX" && !dataOffloaded ? (
         <RoleGuard roles={["SUPERADMIN", "ADMIN_EVENTO", "ADMIN_VECINOS"]} fallback={<p className="message-warning">Sin permisos para importar.</p>}>
-          <ImportWizard eventId={id} eventKind={eventKind} enableReferentes={Boolean(eventQuery.data?.enableReferentes)} />
+          <ImportWizard
+            eventId={id}
+            eventKind={eventKind}
+            enableReferentes={Boolean(eventQuery.data?.enableReferentes)}
+            savedColumns={accreditationColumns}
+          />
         </RoleGuard>
       ) : null}
 

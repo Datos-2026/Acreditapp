@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { AccreditationDisplayColumn } from "@gcba/shared";
 import { api } from "../lib/api";
 import { ImportPreviewTable } from "./ImportPreviewTable";
 import { Icon } from "./Icon";
@@ -21,7 +23,29 @@ type PreviewResult = {
   }>;
   summary: Record<string, unknown>;
   mapping: Record<string, string>;
+  accreditationColumnChoices?: AccreditationDisplayColumn[];
 };
+
+function columnKey(header: string): string {
+  return header
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mergeColumnChoices(previews: PreviewResult[]): AccreditationDisplayColumn[] {
+  const map = new Map<string, AccreditationDisplayColumn>();
+  for (const preview of previews) {
+    for (const column of preview.accreditationColumnChoices ?? []) {
+      const key = columnKey(column.header);
+      if (!key || map.has(key)) continue;
+      map.set(key, { header: column.header, field: column.field ?? null });
+    }
+  }
+  return [...map.values()];
+}
 
 function asReferentes(summary: Record<string, unknown> | undefined): ReferentePreview[] {
   return Array.isArray(summary?.referentes) ? (summary.referentes as ReferentePreview[]) : [];
@@ -51,6 +75,7 @@ type Props = {
   eventId: string;
   eventKind?: "gcba" | "vecinos";
   enableReferentes?: boolean;
+  savedColumns?: AccreditationDisplayColumn[];
 };
 
 function apiErrorMessage(error: unknown, fallback: string): string {
@@ -65,7 +90,13 @@ function apiErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = false }: Props) {
+export function ImportWizard({
+  eventId,
+  eventKind = "gcba",
+  enableReferentes = false,
+  savedColumns = []
+}: Props) {
+  const queryClient = useQueryClient();
   const isVecinos = eventKind === "vecinos";
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [filePreviews, setFilePreviews] = useState<PreviewResult[]>([]);
@@ -75,6 +106,27 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
   const [isConfirming, setIsConfirming] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmSummary, setConfirmSummary] = useState<string | null>(null);
+  const [columnChoices, setColumnChoices] = useState<AccreditationDisplayColumn[]>([]);
+  const [selectedColumnKeys, setSelectedColumnKeys] = useState<string[]>([]);
+  const [wantsExtraColumns, setWantsExtraColumns] = useState(false);
+  const [columnNotice, setColumnNotice] = useState<string | null>(null);
+
+  const applyColumnChoices = (choices: AccreditationDisplayColumn[]) => {
+    const savedKeys = new Set(savedColumns.map((column) => columnKey(column.header)));
+    const preselected = choices.filter((column) => savedKeys.has(columnKey(column.header)));
+    setColumnChoices(choices);
+    setSelectedColumnKeys(preselected.map((column) => columnKey(column.header)));
+    setWantsExtraColumns(preselected.length > 0);
+  };
+
+  const columnsToSave = (): AccreditationDisplayColumn[] => {
+    if (!wantsExtraColumns) return [];
+    const choiceKeys = new Set(columnChoices.map((column) => columnKey(column.header)));
+    const picked = columnChoices.filter((column) => selectedColumnKeys.includes(columnKey(column.header)));
+    const kept = savedColumns.filter((column) => !choiceKeys.has(columnKey(column.header)));
+    const room = Math.max(12 - picked.length, 0);
+    return [...picked, ...kept.slice(0, room)];
+  };
 
   const preview = async (): Promise<PreviewResult | null> => {
     if (files.length === 0) return null;
@@ -102,10 +154,12 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
         return null;
       }
       const mergedReferentes = mergeReferentes(previews.map((p) => asReferentes(p.summary)));
+      const choices = mergeColumnChoices(previews);
       const merged: PreviewResult = {
         ...previews[0],
         originalFilename: previews.map((p) => p.originalFilename).join(", "),
         previewRows: previews.flatMap((p) => p.previewRows),
+        accreditationColumnChoices: choices,
         summary: {
           ...previews[0].summary,
           validRows: sumNumber(previews, "validRows"),
@@ -118,6 +172,8 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
       };
       setFilePreviews(previews);
       setResult(merged);
+      applyColumnChoices(choices);
+      setColumnNotice(null);
       setStep(2);
       if (failed.length > 0) {
         setErrorMessage(`Algunos archivos no se pudieron leer: ${failed.join(" · ")}`);
@@ -138,9 +194,17 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
     setErrorMessage(null);
     setIsConfirming(true);
     try {
-      if (!result) {
-        await preview();
+      let active = result;
+      if (!active) {
+        active = await preview();
+        if (!active) return;
+        if ((active.accreditationColumnChoices ?? []).length > 0) {
+          setColumnNotice("Elegí si querés columnas extra en la ficha y tocá confirmar de nuevo.");
+          return;
+        }
       }
+      const sendColumns = wantsExtraColumns && (active.accreditationColumnChoices ?? []).length > 0;
+      const columnsPayload = columnsToSave();
       let importedTotal = 0;
       const names: string[] = [];
       const failed: string[] = [];
@@ -148,6 +212,9 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
         try {
           const formData = new FormData();
           formData.append("file", file);
+          if (sendColumns) {
+            formData.append("accreditationColumns", JSON.stringify(columnsPayload));
+          }
           const { data: batch } = await api.post<{ importedRows: number }>(
             `/events/${eventId}/imports/confirm`,
             formData
@@ -160,8 +227,15 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
       }
       if (names.length > 0) {
         setStep(3);
+        setColumnNotice(null);
+        void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+        void queryClient.invalidateQueries({ queryKey: ["people", eventId] });
+        const columnNote =
+          sendColumns && columnsPayload.length > 0
+            ? ` En la ficha de acreditación se van a ver: ${columnsPayload.map((column) => column.header).join(", ")}.`
+            : "";
         setConfirmSummary(
-          `Importación confirmada: ${importedTotal} fila(s) de ${names.length} archivo(s) (${names.join(", ")}). Se sumaron a la lista del evento.`
+          `Importación confirmada: ${importedTotal} fila(s) de ${names.length} archivo(s) (${names.join(", ")}). Se sumaron a la lista del evento.${columnNote}`
         );
       }
       if (failed.length > 0) {
@@ -258,6 +332,10 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
             setStep(1);
             setResult(null);
             setFilePreviews([]);
+            setColumnChoices([]);
+            setSelectedColumnKeys([]);
+            setWantsExtraColumns(false);
+            setColumnNotice(null);
             setErrorMessage(null);
             setConfirmSummary(null);
           }}
@@ -343,6 +421,72 @@ export function ImportWizard({ eventId, eventKind = "gcba", enableReferentes = f
                 ))}
               </ul>
             </div>
+          ) : null}
+          {columnChoices.length > 0 ? (
+            <section className="card" style={{ marginTop: "1rem" }}>
+              <h3 style={{ marginTop: 0 }}>¿Querés que aparezca alguna columna más cuando vas a acreditar?</h3>
+              <p style={{ marginTop: 0, color: "var(--on-surface-variant)" }}>
+                Estas columnas están en la planilla y no forman parte de la ficha fija (DNI, dirección, teléfono y el
+                resto). Las que elijas se ven al lado del botón rojo.
+              </p>
+              {savedColumns.length > 0 ? (
+                <p style={{ marginTop: 0, fontWeight: 700 }}>
+                  Ahora se muestran: {savedColumns.map((column) => column.header).join(", ")}.
+                </p>
+              ) : null}
+              <div className="column-picker__choice">
+                <button
+                  type="button"
+                  className={`btn ${wantsExtraColumns ? "btn-secondary" : "btn-primary"}`}
+                  onClick={() => setWantsExtraColumns(false)}
+                >
+                  No, dejar la ficha como está
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${wantsExtraColumns ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setWantsExtraColumns(true)}
+                >
+                  Sí, elegir columnas
+                </button>
+              </div>
+              {wantsExtraColumns ? (
+                <>
+                  <div className="column-picker" role="group" aria-label="Columnas para la ficha de acreditación">
+                    {columnChoices.map((column) => {
+                      const key = columnKey(column.header);
+                      const checked = selectedColumnKeys.includes(key);
+                      const disabled = !checked && selectedColumnKeys.length >= 12;
+                      return (
+                        <label key={key} className={`column-picker__item${checked ? " column-picker__item--on" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={() => {
+                              setSelectedColumnKeys((current) => {
+                                if (current.includes(key)) return current.filter((item) => item !== key);
+                                if (current.length >= 12) return current;
+                                return [...current, key];
+                              });
+                            }}
+                          />
+                          <span>{column.header}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
+                    Podés elegir hasta 12. Las que destildás dejan de verse en la ficha.
+                  </p>
+                </>
+              ) : null}
+              {columnNotice ? (
+                <p className="message-warning" style={{ marginTop: "0.75rem", marginBottom: 0 }}>
+                  {columnNotice}
+                </p>
+              ) : null}
+            </section>
           ) : null}
           <ImportPreviewTable rows={result.previewRows} eventKind={eventKind} />
         </>

@@ -2421,6 +2421,38 @@ a.tab-btn--informe {
   margin: 0 0 0.65rem;
   color: var(--on-surface);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.column-picker__choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.column-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.column-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--outline-variant, #d7d3cc);
+  background: var(--surface-container-lowest);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.column-picker__item--on {
+  border-color: var(--primary-container);
+  background: var(--surface-container-low);
 }
 
 .accred-detail__rows strong {

@@ -17,8 +17,10 @@ import {
   detectUniversalImportColumn,
   importRowIdKey,
   isImportNoiseColumn,
+  listAccreditationColumnChoices,
   mergeImportExtraData,
   normalizeImportCanonical,
+  parseAccreditationColumnsPayload,
   normalizeImportSheetHeader,
   normalizeVecinoImportCanonical,
   resolveImportIdentity,
@@ -136,6 +138,7 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
     headers,
     mapping,
     rows,
+    accreditationColumnChoices: listAccreditationColumnChoices({ kind, headers, mapping, rows }),
     summary: {
       totalRows: jsonRows.length,
       validRows,
@@ -511,6 +514,7 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
       sheetName: parsed.sheetName,
       headers: parsed.headers,
       mapping: parsed.mapping,
+      accreditationColumnChoices: parsed.accreditationColumnChoices,
       previewRows: parsed.rows,
       summary: {
         ...parsed.summary,
@@ -539,6 +543,7 @@ router.post("/:id/imports/preview", requireRoles(...IMPORT_ROLES), upload.single
       sheetName: parsed.sheetName,
       headers: parsed.headers,
       mapping: parsed.mapping,
+      accreditationColumnChoices: parsed.accreditationColumnChoices,
       previewRows: parsed.rows,
       summary: {
         ...parsed.summary,
@@ -572,6 +577,18 @@ router.post(
       }
 
       const parsed = parseWorkbookRows(req.file.buffer, kind);
+      const columnsRaw = req.body?.accreditationColumns;
+      if (columnsRaw !== undefined) {
+        const columns = parseAccreditationColumnsPayload(columnsRaw);
+        if (!columns) {
+          res.status(400).json({ message: "La selección de columnas para acreditar no es válida." });
+          return;
+        }
+        await prisma.event.update({
+          where: { id: req.params.id },
+          data: { accreditationColumns: columns as Prisma.InputJsonValue }
+        });
+      }
       const updatedBatch = await importParsedRows(
         req.params.id,
         kind,
