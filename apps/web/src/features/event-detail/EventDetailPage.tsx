@@ -75,13 +75,37 @@ function readAccreditationColumns(raw: unknown): AccreditationDisplayColumn[] {
   return columns;
 }
 
+function extraDataLookup(extra: Record<string, unknown>, header: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(extra, header)) {
+    const direct = extra[header];
+    if (direct != null && String(direct).trim() !== "") return direct;
+  }
+  const want = header
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+  for (const [key, value] of Object.entries(extra)) {
+    if (value == null || String(value).trim() === "") continue;
+    const got = key
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ");
+    if (got === want) return value;
+  }
+  return extra[header];
+}
+
 function accreditationColumnValue(
   row: Pick<EventPerson, "person" | "extraData" | "source">,
   column: AccreditationDisplayColumn
 ): unknown {
   const person = row.person;
   const extra = row.extraData ?? {};
-  const fromExtra = extra[column.header];
+  const fromExtra = extraDataLookup(extra, column.header);
   switch (column.field) {
     case "email":
       return person.email ?? fromExtra;

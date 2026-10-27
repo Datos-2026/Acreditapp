@@ -79,6 +79,39 @@ type ImportParsedRow = {
   errors: string[];
 };
 
+/** Encabezados reales de la fila 1 + cualquier clave que aparezca en filas posteriores. */
+function collectSheetHeaders(sheet: XLSX.WorkSheet, jsonRows: Record<string, unknown>[]): string[] {
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
+  const headerRow = Array.isArray(aoa[0]) ? aoa[0] : [];
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (rawHeader: unknown) => {
+    if (rawHeader == null) return;
+    const header = String(rawHeader).trim();
+    if (!header) return;
+    const key = normalizeImportSheetHeader(header);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    ordered.push(header);
+  };
+
+  for (const cell of headerRow) push(cell);
+  for (const row of jsonRows) {
+    for (const header of Object.keys(row)) push(header);
+  }
+  return ordered;
+}
+
+function rowValueForHeader(row: Record<string, unknown>, header: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(row, header)) return row[header];
+  const want = normalizeImportSheetHeader(header);
+  for (const [key, value] of Object.entries(row)) {
+    if (key.trim() === header || normalizeImportSheetHeader(key) === want) return value;
+  }
+  return undefined;
+}
+
 function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
   const workbook = XLSX.read(buffer);
   const sheetName = workbook.SheetNames.includes(REQUIRED_SHEET_NAME)
@@ -88,8 +121,8 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
     throw new Error("El archivo no contiene hojas para importar.");
   }
   const sheet = workbook.Sheets[sheetName];
-  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
-  const headers = jsonRows[0] ? Object.keys(jsonRows[0]) : [];
+  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
+  const headers = collectSheetHeaders(sheet, jsonRows);
   const mapping = kind === "vecinos" ? autoDetectVecinoMapping(headers) : autoDetectMapping(headers);
   const canonicalFields = kind === "vecinos" ? vecinoCanonicalFields : gcbaCanonicalFields;
   const idSet = new Set<string>();
@@ -100,15 +133,16 @@ function parseWorkbookRows(buffer: Buffer, kind: EventKind) {
   const rows: ImportParsedRow[] = jsonRows.map((row, index) => {
     const canonical: Record<string, unknown> = {};
     const extra: Record<string, unknown> = {};
-    headers.forEach((header) => {
+    // Incluye encabezados de la hoja y claves sueltas de esta fila (por si Excel omite alguna).
+    const rowHeaders = Array.from(new Set([...headers, ...Object.keys(row).map((h) => h.trim()).filter(Boolean)]));
+    rowHeaders.forEach((header) => {
+      if (isImportNoiseColumn(header)) return;
       const target = mapping[header];
+      const raw = rowValueForHeader(row, header);
       if (target && (canonicalFields as readonly string[]).includes(target)) {
-        applyImportMappedValue(canonical, target, row[header]);
-      } else if (!isImportNoiseColumn(header)) {
-        const raw = row[header];
-        if (raw != null && String(raw).trim() !== "") {
-          extra[header] = raw;
-        }
+        applyImportMappedValue(canonical, target, raw);
+      } else if (raw != null && String(raw).trim() !== "") {
+        extra[header] = typeof raw === "string" ? raw.trim() : raw;
       }
     });
     const normalizedCanonical =
