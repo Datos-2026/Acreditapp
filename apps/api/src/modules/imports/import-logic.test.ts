@@ -89,7 +89,7 @@ describe("normalizeImportCanonical con header 'Nombre y Apellido'", () => {
 });
 
 describe("listAccreditationColumnChoices", () => {
-  it("ofrece columnas que no están en la ficha y descarta las que ya se ven", async () => {
+  it("ofrece todas las columnas de la planilla salvo nombre/apellido y ruido", async () => {
     const { listAccreditationColumnChoices } = await import("./import-logic");
     const choices = listAccreditationColumnChoices({
       kind: "vecinos",
@@ -104,12 +104,22 @@ describe("listAccreditationColumnChoices", () => {
       },
       rows: [
         {
-          canonical: { nombre: "Ana", apellido: "Rojas", dni: "30111222", direccion: "Calle 1", telefono: "11", email: "ana@mail.com" },
+          canonical: {
+            nombre: "Ana",
+            apellido: "Rojas",
+            dni: "30111222",
+            direccion: "Calle 1",
+            telefono: "11",
+            email: "ana@mail.com"
+          },
           extraData: { Escuela: "N° 4" }
         }
       ]
     });
     expect(choices).toEqual([
+      { header: "DNI", field: "dni" },
+      { header: "Dirección", field: "direccion" },
+      { header: "Teléfono", field: "telefono" },
       { header: "Escuela", field: null },
       { header: "Correo", field: "email" }
     ]);

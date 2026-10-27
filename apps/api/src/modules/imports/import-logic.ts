@@ -332,29 +332,19 @@ const ACCREDITATION_COLUMN_FIELDS = new Set([
   "nombreApellido"
 ]);
 
-/** Campos que la ficha de acreditación ya muestra siempre. */
-const DISPLAYED_CANONICAL_FIELDS: Record<"gcba" | "vecinos", Set<string>> = {
-  gcba: new Set(["nombre", "apellido", "nombreCompleto", "nombreApellido", "cuil", "cuit", "dni", "empresa", "cargo"]),
-  vecinos: new Set([
-    "nombre",
-    "apellido",
-    "nombreCompleto",
-    "nombreApellido",
-    "cuil",
-    "cuit",
-    "dni",
-    "direccion",
-    "telefono",
-    "presente",
-    "mesa"
-  ])
-};
-
-function headerAlreadyOnAccreditationCard(kind: "gcba" | "vecinos", header: string, field: string | null): boolean {
-  if (field && DISPLAYED_CANONICAL_FIELDS[kind].has(field)) return true;
+/** Nombre / apellido ya van en el título de la ficha; el resto de la planilla se puede elegir. */
+function isPersonTitleColumn(header: string, field: string | null): boolean {
+  if (
+    field === "nombre" ||
+    field === "apellido" ||
+    field === "nombreCompleto" ||
+    field === "nombreApellido"
+  ) {
+    return true;
+  }
   const normalized = normalizeImportSheetHeader(header);
   if (!normalized) return true;
-  if (
+  return (
     normalized === "nombre" ||
     normalized === "nombres" ||
     normalized === "apellido" ||
@@ -364,39 +354,14 @@ function headerAlreadyOnAccreditationCard(kind: "gcba" | "vecinos", header: stri
     normalized.includes("apellido y nombre") ||
     normalized.startsWith("nombre/") ||
     normalized.startsWith("apellido/")
-  ) {
-    return true;
-  }
-  if (normalized.includes("dni") || normalized.includes("documento") || normalized.includes("cuil") || normalized.includes("cuit")) {
-    return true;
-  }
-  if (normalized === "origen") return true;
-  if (kind === "vecinos") {
-    if (normalized === "direccion" || normalized === "domicilio") return true;
-    if (
-      normalized === "telefono" ||
-      normalized === "celular" ||
-      normalized === "tel" ||
-      normalized === "numero de telefono"
-    ) {
-      return true;
-    }
-    if (normalized === "comuna" || normalized.startsWith("comuna ")) return true;
-    if (normalized === "mesa" || normalized.startsWith("mesa ")) return true;
-    if (normalized === "presente" || normalized === "asistio") return true;
-  }
-  if (kind === "gcba") {
-    if (normalized.includes("ministerio")) return true;
-    if (normalized === "rol" || normalized.startsWith("rol ") || normalized === "cargo") return true;
-  }
-  return false;
+  );
 }
 
 function cellHasValue(value: unknown): boolean {
   return value != null && String(value).trim() !== "";
 }
 
-/** Columnas de la planilla que todavía no se ven en la ficha y tienen algún dato. */
+/** Todas las columnas útiles de la planilla para elegir qué se ve al acreditar. */
 export function listAccreditationColumnChoices(params: {
   kind: "gcba" | "vecinos";
   headers: string[];
@@ -408,7 +373,7 @@ export function listAccreditationColumnChoices(params: {
   for (const header of params.headers) {
     if (isImportNoiseColumn(header)) continue;
     const field = params.mapping[header] ?? null;
-    if (headerAlreadyOnAccreditationCard(params.kind, header, field)) continue;
+    if (isPersonTitleColumn(header, field)) continue;
     const hasValue = params.rows.some((row) => {
       if (field && cellHasValue(row.canonical[field])) return true;
       return cellHasValue(row.extraData?.[header]);

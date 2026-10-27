@@ -97,11 +97,56 @@ function accreditationColumnValue(
       return person.address ?? extra.direccion ?? fromExtra;
     case "presente":
       return extra.presente ?? fromExtra;
+    case "mesa":
+      return extra.mesa ?? fromExtra;
     case "comuna":
       return person.comuna ?? fromExtra;
+    case "dni":
+      return person.dni ?? fromExtra;
+    case "cuil":
+    case "cuit":
+      return person.cuilNormalized ?? fromExtra;
     default:
       return fromExtra;
   }
+}
+
+/** Evita repetir en la ficha un campo que ya se muestra fijo según el tipo de evento. */
+function isFixedAccreditationField(kind: "gcba" | "vecinos", column: AccreditationDisplayColumn): boolean {
+  const field = column.field;
+  const header = column.header
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (kind === "vecinos") {
+    if (field === "dni" || field === "direccion" || field === "telefono" || field === "presente" || field === "mesa" || field === "comuna") {
+      return true;
+    }
+    return (
+      header === "dni" ||
+      header === "direccion" ||
+      header === "domicilio" ||
+      header === "telefono" ||
+      header === "celular" ||
+      header === "comuna" ||
+      header === "mesa" ||
+      header === "presente" ||
+      header === "asistio"
+    );
+  }
+  if (field === "cuil" || field === "cuit" || field === "dni" || field === "empresa" || field === "cargo") {
+    return true;
+  }
+  return (
+    header.includes("cuil") ||
+    header.includes("cuit") ||
+    header === "dni" ||
+    header.includes("ministerio") ||
+    header === "rol" ||
+    header === "cargo"
+  );
 }
 
 function displayOrDash(value: unknown): string {
@@ -1716,12 +1761,14 @@ export function EventDetailPage() {
                       </p>
                     </>
                   )}
-                  {accreditationColumns.map((column) => (
-                    <p key={column.header}>
-                      <strong>{column.header}</strong>{" "}
-                      {displayOrDash(accreditationColumnValue(selected.person, selected.extraData, column))}
-                    </p>
-                  ))}
+                  {accreditationColumns
+                    .filter((column) => !isFixedAccreditationField(eventKind, column))
+                    .map((column) => (
+                      <p key={column.header}>
+                        <strong>{column.header}</strong>{" "}
+                        {displayOrDash(accreditationColumnValue(selected.person, selected.extraData, column))}
+                      </p>
+                    ))}
                 </div>
               </div>
             ) : fueraDeBaseSuccess && !showFueraDeBaseModal ? (

@@ -116,16 +116,23 @@ export function ImportWizard({
     const preselected = choices.filter((column) => savedKeys.has(columnKey(column.header)));
     setColumnChoices(choices);
     setSelectedColumnKeys(preselected.map((column) => columnKey(column.header)));
-    setWantsExtraColumns(preselected.length > 0);
+    // El listado se abre solo al tocar "Sí"; si no, el botón parece no hacer nada.
+    setWantsExtraColumns(false);
+  };
+
+  const openColumnPicker = () => {
+    const savedKeys = new Set(savedColumns.map((column) => columnKey(column.header)));
+    const preselected = columnChoices
+      .filter((column) => savedKeys.has(columnKey(column.header)))
+      .map((column) => columnKey(column.header));
+    setSelectedColumnKeys((current) => (current.length > 0 ? current : preselected));
+    setWantsExtraColumns(true);
+    setColumnNotice(null);
   };
 
   const columnsToSave = (): AccreditationDisplayColumn[] => {
     if (!wantsExtraColumns) return [];
-    const choiceKeys = new Set(columnChoices.map((column) => columnKey(column.header)));
-    const picked = columnChoices.filter((column) => selectedColumnKeys.includes(columnKey(column.header)));
-    const kept = savedColumns.filter((column) => !choiceKeys.has(columnKey(column.header)));
-    const room = Math.max(12 - picked.length, 0);
-    return [...picked, ...kept.slice(0, room)];
+    return columnChoices.filter((column) => selectedColumnKeys.includes(columnKey(column.header))).slice(0, 12);
   };
 
   const preview = async (): Promise<PreviewResult | null> => {
@@ -198,8 +205,8 @@ export function ImportWizard({
       if (!active) {
         active = await preview();
         if (!active) return;
-        if ((active.accreditationColumnChoices ?? []).length > 0) {
-          setColumnNotice("Elegí si querés columnas extra en la ficha y tocá confirmar de nuevo.");
+        if ((active.accreditationColumnChoices ?? []).length > 0 && !wantsExtraColumns) {
+          setColumnNotice('Tocá "Sí, elegir columnas" para marcar cuáles se ven en la ficha, o confirmá de nuevo para dejarla como está.');
           return;
         }
       }
@@ -426,8 +433,8 @@ export function ImportWizard({
             <section className="card" style={{ marginTop: "1rem" }}>
               <h3 style={{ marginTop: 0 }}>¿Querés que aparezca alguna columna más cuando vas a acreditar?</h3>
               <p style={{ marginTop: 0, color: "var(--on-surface-variant)" }}>
-                Estas columnas están en la planilla y no forman parte de la ficha fija (DNI, dirección, teléfono y el
-                resto). Las que elijas se ven al lado del botón rojo.
+                Tocá <strong>Sí, elegir columnas</strong> para ver todas las de la planilla y marcar cuáles se muestran
+                al lado del botón rojo. Nombre y apellido no se listan porque ya van en el título.
               </p>
               {savedColumns.length > 0 ? (
                 <p style={{ marginTop: 0, fontWeight: 700 }}>
@@ -438,14 +445,17 @@ export function ImportWizard({
                 <button
                   type="button"
                   className={`btn ${wantsExtraColumns ? "btn-secondary" : "btn-primary"}`}
-                  onClick={() => setWantsExtraColumns(false)}
+                  onClick={() => {
+                    setWantsExtraColumns(false);
+                    setColumnNotice(null);
+                  }}
                 >
                   No, dejar la ficha como está
                 </button>
                 <button
                   type="button"
                   className={`btn ${wantsExtraColumns ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => setWantsExtraColumns(true)}
+                  onClick={openColumnPicker}
                 >
                   Sí, elegir columnas
                 </button>
@@ -477,7 +487,8 @@ export function ImportWizard({
                     })}
                   </div>
                   <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-                    Podés elegir hasta 12. Las que destildás dejan de verse en la ficha.
+                    {columnChoices.length} columna(s) en la planilla. Podés elegir hasta 12. Las tildadas se ven en la
+                    ficha; las destildadas no.
                   </p>
                 </>
               ) : null}
