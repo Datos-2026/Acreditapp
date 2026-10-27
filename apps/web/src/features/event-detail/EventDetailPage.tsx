@@ -1469,10 +1469,12 @@ export function EventDetailPage() {
                       {isVecinosEvent ? (
                         <>
                           <p className="live-result-card__meta">DNI {row.person.dni ?? "—"}</p>
-                          <p className="live-result-card__meta">{row.person.comuna ?? "Sin comuna"}</p>
-                      {row.status === "accredited" ? (
-                        <p className="live-result-card__meta">Mesa {vecinoMesaFromExtra(row.extraData)}</p>
-                      ) : null}
+                          {row.person.comuna ? (
+                            <p className="live-result-card__meta">{row.person.comuna}</p>
+                          ) : null}
+                          {row.status === "accredited" ? (
+                            <p className="live-result-card__meta">Mesa {vecinoMesaFromExtra(row.extraData)}</p>
+                          ) : null}
                         </>
                       ) : (
                         <>
