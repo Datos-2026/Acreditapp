@@ -1,4 +1,10 @@
-import { normalizeCuil, normalizeDni, syntheticCuilFromDni, type AccreditationDisplayColumn } from "@gcba/shared";
+import {
+  defaultAccreditationColumns,
+  normalizeCuil,
+  normalizeDni,
+  syntheticCuilFromDni,
+  type AccreditationDisplayColumn
+} from "@gcba/shared";
 
 /** Normaliza encabezados de planilla para autodetección (barras Unicode, espacios, tildes). */
 export function normalizeImportSheetHeader(header: string): string {
@@ -326,13 +332,16 @@ const ACCREDITATION_COLUMN_FIELDS = new Set([
   "dni",
   "cuil",
   "cuit",
+  "origen",
   "nombre",
   "apellido",
   "nombreCompleto",
   "nombreApellido"
 ]);
 
-/** Nombre / apellido ya van en el título de la ficha; el resto de la planilla se puede elegir. */
+const MAX_ACCREDITATION_COLUMNS = 20;
+
+/** Nombre / apellido ya van en el título de la ficha; el resto se puede elegir. */
 function isPersonTitleColumn(header: string, field: string | null): boolean {
   if (
     field === "nombre" ||
@@ -361,7 +370,7 @@ function cellHasValue(value: unknown): boolean {
   return value != null && String(value).trim() !== "";
 }
 
-/** Todas las columnas útiles de la planilla para elegir qué se ve al acreditar. */
+/** Campos estándar de la ficha + todas las columnas útiles de la planilla. */
 export function listAccreditationColumnChoices(params: {
   kind: "gcba" | "vecinos";
   headers: string[];
@@ -369,7 +378,22 @@ export function listAccreditationColumnChoices(params: {
   rows: Array<{ canonical: Record<string, unknown>; extraData?: Record<string, unknown> }>;
 }): AccreditationDisplayColumn[] {
   const choices: AccreditationDisplayColumn[] = [];
-  const seen = new Set<string>();
+  const seenHeaders = new Set<string>();
+  const seenFields = new Set<string>();
+
+  const push = (column: AccreditationDisplayColumn) => {
+    const key = normalizeImportSheetHeader(column.header);
+    if (!key || seenHeaders.has(key)) return;
+    if (column.field && seenFields.has(column.field)) return;
+    seenHeaders.add(key);
+    if (column.field) seenFields.add(column.field);
+    choices.push(column);
+  };
+
+  for (const column of defaultAccreditationColumns(params.kind)) {
+    push(column);
+  }
+
   for (const header of params.headers) {
     if (isImportNoiseColumn(header)) continue;
     const field = params.mapping[header] ?? null;
@@ -379,15 +403,12 @@ export function listAccreditationColumnChoices(params: {
       return cellHasValue(row.extraData?.[header]);
     });
     if (!hasValue) continue;
-    const key = normalizeImportSheetHeader(header);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    choices.push({ header, field });
+    push({ header, field });
   }
   return choices;
 }
 
-/** null = payload inválido. [] = el usuario no quiere columnas extra. */
+/** null = payload inválido. [] = el usuario no quiere columnas custom. */
 export function parseAccreditationColumnsPayload(raw: unknown): AccreditationDisplayColumn[] | null {
   let value = raw;
   if (typeof raw === "string") {
@@ -400,7 +421,7 @@ export function parseAccreditationColumnsPayload(raw: unknown): AccreditationDis
     }
   }
   if (!Array.isArray(value)) return null;
-  if (value.length > 12) return null;
+  if (value.length > MAX_ACCREDITATION_COLUMNS) return null;
   const out: AccreditationDisplayColumn[] = [];
   const seen = new Set<string>();
   for (const item of value) {

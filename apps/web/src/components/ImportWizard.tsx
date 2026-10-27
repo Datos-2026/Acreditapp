@@ -1,9 +1,30 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AccreditationDisplayColumn } from "@gcba/shared";
+import { resolveAccreditationDisplayColumns } from "@gcba/shared";
 import { api } from "../lib/api";
 import { ImportPreviewTable } from "./ImportPreviewTable";
 import { Icon } from "./Icon";
+
+const MAX_PICKED_COLUMNS = 20;
+
+function columnKey(header: string): string {
+  return header
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function columnMatchesSaved(column: AccreditationDisplayColumn, saved: AccreditationDisplayColumn[]): boolean {
+  const key = columnKey(column.header);
+  return saved.some(
+    (item) =>
+      columnKey(item.header) === key ||
+      (column.field != null && item.field != null && column.field === item.field)
+  );
+}
 
 type ReferentePreview = {
   name: string;
@@ -25,15 +46,6 @@ type PreviewResult = {
   mapping: Record<string, string>;
   accreditationColumnChoices?: AccreditationDisplayColumn[];
 };
-
-function columnKey(header: string): string {
-  return header
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function mergeColumnChoices(previews: PreviewResult[]): AccreditationDisplayColumn[] {
   const map = new Map<string, AccreditationDisplayColumn>();
@@ -111,19 +123,21 @@ export function ImportWizard({
   const [wantsExtraColumns, setWantsExtraColumns] = useState(false);
   const [columnNotice, setColumnNotice] = useState<string | null>(null);
 
+  const visibleNow = resolveAccreditationDisplayColumns(eventKind, savedColumns);
+
   const applyColumnChoices = (choices: AccreditationDisplayColumn[]) => {
-    const savedKeys = new Set(savedColumns.map((column) => columnKey(column.header)));
-    const preselected = choices.filter((column) => savedKeys.has(columnKey(column.header)));
+    const preselected = choices
+      .filter((column) => columnMatchesSaved(column, visibleNow))
+      .map((column) => columnKey(column.header));
     setColumnChoices(choices);
-    setSelectedColumnKeys(preselected.map((column) => columnKey(column.header)));
+    setSelectedColumnKeys(preselected);
     // El listado se abre solo al tocar "Sí"; si no, el botón parece no hacer nada.
     setWantsExtraColumns(false);
   };
 
   const openColumnPicker = () => {
-    const savedKeys = new Set(savedColumns.map((column) => columnKey(column.header)));
     const preselected = columnChoices
-      .filter((column) => savedKeys.has(columnKey(column.header)))
+      .filter((column) => columnMatchesSaved(column, visibleNow))
       .map((column) => columnKey(column.header));
     setSelectedColumnKeys((current) => (current.length > 0 ? current : preselected));
     setWantsExtraColumns(true);
@@ -132,7 +146,9 @@ export function ImportWizard({
 
   const columnsToSave = (): AccreditationDisplayColumn[] => {
     if (!wantsExtraColumns) return [];
-    return columnChoices.filter((column) => selectedColumnKeys.includes(columnKey(column.header))).slice(0, 12);
+    return columnChoices
+      .filter((column) => selectedColumnKeys.includes(columnKey(column.header)))
+      .slice(0, MAX_PICKED_COLUMNS);
   };
 
   const preview = async (): Promise<PreviewResult | null> => {
@@ -431,16 +447,14 @@ export function ImportWizard({
           ) : null}
           {columnChoices.length > 0 ? (
             <section className="card" style={{ marginTop: "1rem" }}>
-              <h3 style={{ marginTop: 0 }}>¿Querés que aparezca alguna columna más cuando vas a acreditar?</h3>
+              <h3 style={{ marginTop: 0 }}>¿Qué columnas querés ver cuando vas a acreditar?</h3>
               <p style={{ marginTop: 0, color: "var(--on-surface-variant)" }}>
-                Tocá <strong>Sí, elegir columnas</strong> para ver todas las de la planilla y marcar cuáles se muestran
-                al lado del botón rojo. Nombre y apellido no se listan porque ya van en el título.
+                Tocá <strong>Sí, elegir columnas</strong> para marcar todo lo que se ve al lado del botón rojo: DNI,
+                dirección, mesa, origen y también las columnas de la planilla. Nombre y apellido ya van en el título.
               </p>
-              {savedColumns.length > 0 ? (
-                <p style={{ marginTop: 0, fontWeight: 700 }}>
-                  Ahora se muestran: {savedColumns.map((column) => column.header).join(", ")}.
-                </p>
-              ) : null}
+              <p style={{ marginTop: 0, fontWeight: 700 }}>
+                Ahora se muestran: {visibleNow.map((column) => column.header).join(", ")}.
+              </p>
               <div className="column-picker__choice">
                 <button
                   type="button"
@@ -466,7 +480,7 @@ export function ImportWizard({
                     {columnChoices.map((column) => {
                       const key = columnKey(column.header);
                       const checked = selectedColumnKeys.includes(key);
-                      const disabled = !checked && selectedColumnKeys.length >= 12;
+                      const disabled = !checked && selectedColumnKeys.length >= MAX_PICKED_COLUMNS;
                       return (
                         <label key={key} className={`column-picker__item${checked ? " column-picker__item--on" : ""}`}>
                           <input
@@ -476,7 +490,7 @@ export function ImportWizard({
                             onChange={() => {
                               setSelectedColumnKeys((current) => {
                                 if (current.includes(key)) return current.filter((item) => item !== key);
-                                if (current.length >= 12) return current;
+                                if (current.length >= MAX_PICKED_COLUMNS) return current;
                                 return [...current, key];
                               });
                             }}
@@ -487,8 +501,8 @@ export function ImportWizard({
                     })}
                   </div>
                   <p style={{ margin: "0.75rem 0 0", color: "var(--on-surface-variant)", fontSize: "0.9rem" }}>
-                    {columnChoices.length} columna(s) en la planilla. Podés elegir hasta 12. Las tildadas se ven en la
-                    ficha; las destildadas no.
+                    {columnChoices.length} opción(es). Podés elegir hasta {MAX_PICKED_COLUMNS}. Las tildadas se ven en
+                    la ficha; las destildadas no.
                   </p>
                 </>
               ) : null}

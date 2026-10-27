@@ -26,7 +26,7 @@ import { RoleGuard } from "../../components/RoleGuard";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConfirmTypeDialog } from "../../components/ConfirmTypeDialog";
 import type { AccreditationDisplayColumn, DirectoryPersonDto, DirectorySearchResult, EventReferenteGroupDto, EventReferenteListItemDto, MesaStatRowDto, MesaStatsDto, VecinoDirectoryPersonDto } from "@gcba/shared";
-import { displayPersonDocument, documentColumnLabel } from "@gcba/shared";
+import { displayPersonDocument, documentColumnLabel, resolveAccreditationDisplayColumns } from "@gcba/shared";
 import {
   downloadAccreditedXlsx,
   downloadAcreditadosMysqlXlsx,
@@ -76,11 +76,11 @@ function readAccreditationColumns(raw: unknown): AccreditationDisplayColumn[] {
 }
 
 function accreditationColumnValue(
-  person: EventPerson["person"],
-  extraData: Record<string, unknown> | null | undefined,
+  row: Pick<EventPerson, "person" | "extraData" | "source">,
   column: AccreditationDisplayColumn
 ): unknown {
-  const extra = extraData ?? {};
+  const person = row.person;
+  const extra = row.extraData ?? {};
   const fromExtra = extra[column.header];
   switch (column.field) {
     case "email":
@@ -106,47 +106,11 @@ function accreditationColumnValue(
     case "cuil":
     case "cuit":
       return person.cuilNormalized ?? fromExtra;
+    case "origen":
+      return row.source === "manual" ? "Fuera de base" : "Base importada";
     default:
       return fromExtra;
   }
-}
-
-/** Evita repetir en la ficha un campo que ya se muestra fijo según el tipo de evento. */
-function isFixedAccreditationField(kind: "gcba" | "vecinos", column: AccreditationDisplayColumn): boolean {
-  const field = column.field;
-  const header = column.header
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (kind === "vecinos") {
-    if (field === "dni" || field === "direccion" || field === "telefono" || field === "presente" || field === "mesa" || field === "comuna") {
-      return true;
-    }
-    return (
-      header === "dni" ||
-      header === "direccion" ||
-      header === "domicilio" ||
-      header === "telefono" ||
-      header === "celular" ||
-      header === "comuna" ||
-      header === "mesa" ||
-      header === "presente" ||
-      header === "asistio"
-    );
-  }
-  if (field === "cuil" || field === "cuit" || field === "dni" || field === "empresa" || field === "cargo") {
-    return true;
-  }
-  return (
-    header.includes("cuil") ||
-    header.includes("cuit") ||
-    header === "dni" ||
-    header.includes("ministerio") ||
-    header === "rol" ||
-    header === "cargo"
-  );
 }
 
 function displayOrDash(value: unknown): string {
@@ -156,10 +120,6 @@ function displayOrDash(value: unknown): string {
 
 function vecinoMesaFromExtra(extraData?: Record<string, unknown> | null): string {
   return displayOrDash(extraData?.mesa);
-}
-
-function vecinoPresenteFromExtra(extraData?: Record<string, unknown> | null): string {
-  return displayOrDash(extraData?.presente);
 }
 
 function MesaSelect({
@@ -465,9 +425,10 @@ export function EventDetailPage() {
 
   const eventKind = (eventQuery.data?.kind ?? "gcba") as "gcba" | "vecinos";
   const isVecinosEvent = eventKind === "vecinos";
-  const accreditationColumns = readAccreditationColumns(
+  const savedAccreditationColumns = readAccreditationColumns(
     (eventQuery.data as { accreditationColumns?: unknown } | undefined)?.accreditationColumns
   );
+  const accreditationColumns = resolveAccreditationDisplayColumns(eventKind, savedAccreditationColumns);
   const enableMesas = Boolean(eventQuery.data?.enableMesas);
   const googleSheetName = eventQuery.data?.googleSheetName as string | null | undefined;
   const canDownloadAcreditadosBase = Boolean(eventQuery.data?.canDownloadAcreditadosBase);
@@ -1717,58 +1678,11 @@ export function EventDetailPage() {
                   )}
                 </div>
                 <div className="accred-detail__rows">
-                  {isVecinosEvent ? (
-                    <>
-                      <p>
-                        <strong>DNI</strong> {displayOrDash(selected.person.dni)}
-                      </p>
-                      <p>
-                        <strong>Dirección</strong>{" "}
-                        {displayOrDash(selected.person.address ?? selected.extraData?.direccion)}
-                      </p>
-                      <p>
-                        <strong>Comuna</strong> {displayOrDash(selected.person.comuna)}
-                      </p>
-                      <p>
-                        <strong>Teléfono</strong> {displayOrDash(selected.person.phone)}
-                      </p>
-                      <p>
-                        <strong>Mesa</strong> {vecinoMesaFromExtra(selected.extraData)}
-                      </p>
-                      <p>
-                        <strong>Presente</strong> {vecinoPresenteFromExtra(selected.extraData)}
-                      </p>
-                      <p>
-                        <strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p>
-                        <strong>CUIL</strong> {selected.person.cuilNormalized}
-                      </p>
-                      <p>
-                        <strong>DNI</strong> {selected.person.dni ?? "—"}
-                      </p>
-                      <p>
-                        <strong>Ministerio</strong> {selected.person.company ?? "—"}
-                      </p>
-                      <p>
-                        <strong>Rol</strong> {selected.person.position ?? "—"}
-                      </p>
-                      <p>
-                        <strong>Origen</strong> {selected.source === "manual" ? "Fuera de base" : "Base importada"}
-                      </p>
-                    </>
-                  )}
-                  {accreditationColumns
-                    .filter((column) => !isFixedAccreditationField(eventKind, column))
-                    .map((column) => (
-                      <p key={column.header}>
-                        <strong>{column.header}</strong>{" "}
-                        {displayOrDash(accreditationColumnValue(selected.person, selected.extraData, column))}
-                      </p>
-                    ))}
+                  {accreditationColumns.map((column) => (
+                    <p key={`${column.field ?? "extra"}:${column.header}`}>
+                      <strong>{column.header}</strong> {displayOrDash(accreditationColumnValue(selected, column))}
+                    </p>
+                  ))}
                 </div>
               </div>
             ) : fueraDeBaseSuccess && !showFueraDeBaseModal ? (
@@ -2706,7 +2620,7 @@ export function EventDetailPage() {
             eventId={id}
             eventKind={eventKind}
             enableReferentes={Boolean(eventQuery.data?.enableReferentes)}
-            savedColumns={accreditationColumns}
+            savedColumns={savedAccreditationColumns}
           />
         </RoleGuard>
       ) : null}

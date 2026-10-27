@@ -141,10 +141,13 @@ export type PersonSummaryDto = {
   comuna?: string | null;
 };
 
-/** Columna de la planilla elegida para verse en la ficha de acreditación. */
+/** Columna elegida para verse en la ficha de acreditación. */
 export type AccreditationDisplayColumn = {
   header: string;
-  /** Campo canónico (email, notes, …) si la columna se mapeó. null = valor en extraData[header]. */
+  /**
+   * Campo canónico (dni, email, origen, …) si aplica.
+   * null = valor en extraData[header] (columna libre de la planilla).
+   */
   field: string | null;
 };
 

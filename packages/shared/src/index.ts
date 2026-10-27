@@ -4,3 +4,4 @@ export * from "./schemas";
 export * from "./cuil";
 export * from "./referente";
 export * from "./date";
+export * from "./accreditation-columns";
